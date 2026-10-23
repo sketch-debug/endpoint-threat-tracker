@@ -1,0 +1,10 @@
+# Known miner process names (case-insensitive match on the image name).
+xmrig.exe
+minerd.exe
+cpuminer.exe
+cgminer.exe
+nbminer.exe
+t-rex.exe
+phoenixminer.exe
+ethminer.exe
+lolminer.exe

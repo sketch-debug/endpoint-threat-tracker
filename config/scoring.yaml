@@ -1,0 +1,77 @@
+# Detection rule weights and scoring thresholds.
+# Each detection rule has an id; the weight below is added to the PC score when it fires.
+# Scoring model (documented in README):
+#   * PC score over the rolling window = sum over DISTINCT rule ids of that rule's weight
+#     (repeats of the same rule do not stack).
+#   * PC score < alert threshold  -> signal is logged only (no incident).
+#   * PC score >= alert threshold -> alert / incident for that PC.
+#   * Severity comes from the score bands below, then the escalation matrix raises it
+#     when several signal categories appear on one PC.
+
+rule_weights:
+  # --- miner / network ---
+  dns_mining_pool: 15
+  conn_mining_port: 15
+  proc_miner_name: 25
+  cpu_high_offhours: 10
+  dns_c2_domain: 25
+  net_unapproved_rat: 25
+
+  # --- execution ---
+  proc_suspicious_path: 10          # process from Temp/AppData/Downloads (inventory)
+  proc_unsigned: 5                  # unsigned process (inventory signature_status)
+  exec_suspicious_command: 20       # command line matched the pattern list
+  exec_temp_unsigned: 15            # process from suspicious path AND unsigned
+  exec_office_spawn: 20             # Office/browser spawning a script interpreter
+  proc_bad_hash: 30                 # process/file hash on the known-bad list
+  defender_detection: 35            # Defender detection history entry
+
+  # --- persistence ---
+  pers_run_key: 10
+  pers_service: 10
+  pers_task: 10
+  pers_startup: 10
+  pers_wmi: 15
+  pers_new_admin: 20                # 4720 / 4732
+
+  # --- account ---
+  acct_failed_burst: 15
+  acct_success_after_burst: 15
+  acct_offhours_login: 5
+  acct_unusual_source: 10
+
+  # --- evasion ---
+  evade_defender_rtp: 20            # 5001 / real-time protection off
+  evade_defender_exclusion: 20      # 5007 / new exclusions in defender status
+  evade_defender_stopped: 20        # Defender service not running
+  evade_log_cleared: 25             # 1102
+
+  # --- ransomware ---
+  ransom_extension: 40
+  ransom_note: 45
+  ransom_mass_change: 40            # many renames/modifications in a short window
+  ransom_shadow_copy: 30            # vssadmin / wmic shadowcopy / wbadmin / bcdedit tamper
+
+thresholds:
+  alert_score: 40                   # PC score that raises an alert / opens an incident
+  severity_medium: 60
+  severity_high: 80
+  # rule-specific numeric thresholds
+  mining_port_min_duration_seconds: 300    # long-lived connection on a listed port
+  high_cpu_percent: 85                      # sustained high CPU (inventory cpu_percent)
+  login_burst_failures: 5                   # failed logins within login_burst_minutes
+  login_burst_minutes: 10
+  unusual_source_lookback_days: 30          # source PC/IP unseen for this long = unusual
+  mass_change_events: 20                    # file changes in mass_change_window_minutes
+  mass_change_window_minutes: 5
+  persistence_diff_requires_baseline: true  # first inventory snapshot sets the baseline
+
+escalation:
+  min_severity_with_categories: 2   # >=2 distinct categories -> at least medium
+  min_severity_with_categories_3: 3 # >=3 distinct categories -> at least high
+  # A PC showing ALL of these categories escalates to high regardless of score
+  category_combinations:
+    - [evasion, persistence, execution]
+    - [ransomware, evasion]
+
+severity_levels: [low, medium, high, critical]

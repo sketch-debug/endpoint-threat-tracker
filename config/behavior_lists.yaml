@@ -1,0 +1,38 @@
+# Behavior lists used by the office-spawn execution rule (all case-insensitive,
+# matched against the image base name). Edit to match your standard builds.
+
+office_apps:
+  - winword.exe
+  - excel.exe
+  - powerpnt.exe
+  - outlook.exe
+  - msaccess.exe
+  - visio.exe
+  - onenote.exe
+  - mspub.exe
+  - eqnedt32.exe
+
+browsers:
+  - chrome.exe
+  - firefox.exe
+  - msedge.exe
+  - iexplore.exe
+  - brave.exe
+  - opera.exe
+  - opera_gx.exe
+
+script_interpreters:
+  - powershell.exe
+  - pwsh.exe
+  - cmd.exe
+  - wscript.exe
+  - cscript.exe
+  - mshta.exe
+  - rundll32.exe
+  - regsvr32.exe
+  - certutil.exe
+  - bitsadmin.exe
+  - csi.exe
+  - msbuild.exe
+  - python.exe
+  - wsl.exe

@@ -1,0 +1,5 @@
+# Mining pool domains (one per line, # comments allowed).
+# Matching is case-insensitive and includes subdomains.
+pool.example-mining.test
+xmr.pool.fake-example.test
+stratum.fakedomain.test

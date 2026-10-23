@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Login - Threat Tracker{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <form method="post" action="/login" class="card login-card">
+    <h1>Threat Tracker</h1>
+    <p class="meta">Endpoint threat detection &amp; incident tracker (internal use)</p>
+    {% if error %}<div class="flash flash-err">{{ error }}</div>{% endif %}
+    <label>Username
+      <input name="username" autocomplete="username" required autofocus>
+    </label>
+    <label>Password
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit" class="btn btn-primary">Sign in</button>
+    <p class="meta small">Default install: admin / admin1234 &mdash; change it on the
+      Users page after first login.</p>
+  </form>
+</div>
+{% endblock %}

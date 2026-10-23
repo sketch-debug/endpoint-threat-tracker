@@ -1,0 +1,18 @@
+# Remote-access / remote-control tools that are NOT approved in this environment.
+# Matched against the process image name (case-insensitive, .exe optional).
+# If a tool is approved here, put it in approved_remote_tools.txt instead.
+anydesk.exe
+teamviewer.exe
+ultraviewer.exe
+ammyy_admin.exe
+radmin.exe
+vncserver.exe
+winvnc.exe
+ngrok.exe
+logmein.exe
+screenconnect.exe
+connectwisecontrol.exe
+beyondtrust_remote_support.exe
+splashtop_streamer.exe
+rustdesk.exe
+parsec.exe

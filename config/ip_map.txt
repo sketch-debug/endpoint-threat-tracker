@@ -1,0 +1,15 @@
+# Static IP -> hostname map for network-only logs (DNS / firewall CSV).
+# One entry per line: IP=HOSTNAME   (# comments and blank lines allowed)
+# Hostnames are also learned automatically from process/persistence inventory
+# files once those have been ingested; this file covers DNS/firewall rows
+# ingested before any inventory for that PC has arrived.
+#
+# Demo fleet (fake data, see generator/generate_fake_data.py)
+192.168.10.21=PC-LAB-01
+192.168.10.22=PC-LAB-02
+192.168.10.23=PC-OPS-03
+192.168.10.24=PC-FIN-02
+192.168.10.31=PC-HR-04
+192.168.10.32=PC-FIN-01
+192.168.10.33=PC-DEV-02
+192.168.10.34=PC-EXEC-05

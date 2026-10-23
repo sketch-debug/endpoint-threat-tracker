@@ -1,0 +1,7 @@
+# Destinations that are typically benign ports are fine, but long-lived flows to
+# these ports are suspicious. One TCP port per line.
+3333
+4444
+5555
+14444
+45700

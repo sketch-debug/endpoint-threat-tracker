@@ -1,0 +1,7 @@
+# Ransom note filenames (case-insensitive glob-ish match on the file name).
+# * is allowed as a wildcard.
+*readme*.txt
+*_restore_*.txt
+how_to_decrypt*
+# DECRYPT-FILES.txt
+# ransom-note.txt

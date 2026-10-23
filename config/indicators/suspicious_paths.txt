@@ -1,0 +1,9 @@
+# Paths a process should rarely run from (matched against the full image path,
+# case-insensitive, prefix or substring match).
+\temp\
+\appdata\local\temp\
+\appdata\roaming\
+\downloads\
+\windows\temp\
+\public\
+\programdata\microsoft\windows\start menu\programs\startup\

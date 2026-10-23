@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} - Threat Tracker{% endblock %}
+{% block content %}
+<h1>Edit indicator list: <code>{{ name }}.txt</code></h1>
+<p class="meta">One entry per line. Lines starting with <code>#</code> are comments.
+  Changes take effect on the next detection pass.</p>
+<form method="post" action="/config/indicators/{{ name }}">
+  <textarea name="content" rows="28" class="code">{{ content }}</textarea>
+  <div class="actions">
+    <button class="btn btn-primary">Save</button>
+    <a class="btn btn-ghost" href="/config">Back to config</a>
+  </div>
+</form>
+{% endblock %}

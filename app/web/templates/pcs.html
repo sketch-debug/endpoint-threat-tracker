@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}PCs - Threat Tracker{% endblock %}
+{% block content %}
+<h1>PCs</h1>
+<p class="meta">Every PC seen in any ingested file, with its current risk score.</p>
+{% if pcs %}
+<table>
+  <tr><th>PC</th><th>Signals</th><th>In incidents</th><th>Score</th><th>Severity</th>
+      <th>Last seen</th></tr>
+  {% for p in pcs %}
+  <tr>
+    <td><a href="/pcs/{{ p.pc }}"><strong>{{ p.pc }}</strong></a></td>
+    <td>{{ p.signals }}</td>
+    <td>{{ p.in_incidents }}</td>
+    <td>{{ p.score }}</td>
+    <td>{% if p.severity %}<span class="badge sev-{{ p.severity }}">{{ p.severity }}</span>
+        {% else %}<span class="meta">quiet</span>{% endif %}</td>
+    <td>{{ (p.last_seen or "")[:16].replace("T", " ") }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}<p class="meta">No PCs yet &mdash; ingest some files first.</p>{% endif %}
+{% endblock %}

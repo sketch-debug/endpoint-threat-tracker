@@ -1,0 +1,63 @@
+# Incident types: what incidents can be called, how they are auto-suggested,
+# their alert priority, and the response checklist shown on the incident page
+# and included in alerts. Analysts can override the suggested type on any incident.
+#
+# suggest: a type is suggested when ANY of its signal categories or rule ids
+# contributed to the incident. Order matters: the first matching type below wins.
+
+types:
+  ransomware:
+    label: Ransomware
+    priority: critical        # alerts immediately at the highest priority
+    suggest_categories: [ransomware]
+    suggest_rules: [ransom_extension, ransom_note, ransom_mass_change, ransom_shadow_copy]
+    checklist:
+      - "IMMEDIATE: Isolate the PC from the network (unplug / disable switch port)"
+      - "Do NOT power off the PC unless instructed by IR (volatile evidence)"
+      - "Verify backups: confirm offline/offsite copies are intact and not encrypted"
+      - "Identify patient zero: first signal time, entry point, shared files/servers"
+      - "Check other PCs in this incident for the same ransomware extension or note"
+      - "Preserve evidence: keep disk image / exported logs before reimage"
+      - "Determine ransomware family from note filename and extension (metadata only)"
+      - "After reimage: restore from clean backup only, then start 14-day re-check"
+
+  remote-access/backdoor:
+    label: Remote access / backdoor
+    priority: high
+    suggest_categories: [network]
+    suggest_rules: [net_unapproved_rat, dns_c2_domain]
+    checklist:
+      - "Identify the remote-access tool and how it was installed (task/service/Run key)"
+      - "Isolate the PC if the tool is unapproved or C2 traffic is confirmed"
+      - "Record C2 domain / IP for the block list (reviewed by a human before any block)"
+      - "Check for persistence: scheduled tasks, services, WMI subscriptions, Run keys"
+      - "Look for the same tool or hash on other PCs in this incident"
+      - "Force password reset for the affected local account after containment"
+      - "Reimage if the tool cannot be fully removed with confidence"
+      - "After cleanup: start 14-day re-check"
+
+  miner:
+    label: Cryptomining
+    priority: high
+    suggest_categories: [miner]
+    suggest_rules: [dns_mining_pool, conn_mining_port, proc_miner_name, cpu_high_offhours]
+    checklist:
+      - "Confirm the mining process and its source (path, task, service, Run key)"
+      - "Record mining pool domain and port in the incident notes"
+      - "Check for persistence mechanisms the miner used to survive reboot"
+      - "Verify the machine was not reimaged before signing off"
+      - "Check other PCs sharing the same hash / pool domain / task name"
+      - "After cleanup: start 14-day re-check"
+
+  unknown:
+    label: Unknown / suspicious activity
+    priority: medium
+    suggest_categories: []
+    suggest_rules: []
+    checklist:
+      - "Review all signals and decide the actual incident type (analyst override)"
+      - "Identify entry point: which process, account, or download started it"
+      - "Collect metadata for the affected PC: processes, tasks, services"
+      - "Ask the PC owner what was installed or opened around the first signal time"
+      - "If malicious: isolate, then follow the matching type checklist"
+      - "After cleanup: start 14-day re-check"

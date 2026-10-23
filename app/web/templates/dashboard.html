@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Threat Tracker{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<section class="stat-row">
+  <div class="stat stat-critical"><div class="num">{{ counts.critical }}</div>
+    <div class="lbl">Critical</div></div>
+  <div class="stat stat-high"><div class="num">{{ counts.high }}</div>
+    <div class="lbl">High</div></div>
+  <div class="stat"><div class="num">{{ counts.open }}</div>
+    <div class="lbl">Open incidents</div></div>
+  <div class="stat"><div class="num">{{ counts.pcs_active }}</div>
+    <div class="lbl">Affected PCs</div></div>
+  <div class="stat"><div class="num">{{ counts.signals_24h }}</div>
+    <div class="lbl">Signals (today)</div></div>
+  <div class="stat"><div class="num">{{ counts.closed_total }}</div>
+    <div class="lbl">Closed</div></div>
+</section>
+
+{% if user.role in ('analyst', 'admin') %}
+<div class="actions">
+  <form method="post" action="/run/ingest" class="inline">
+    <button class="btn">Run inbox ingest now</button></form>
+  <form method="post" action="/run/recheck" class="inline">
+    <button class="btn">Run re-check sweep now</button></form>
+  <span class="meta">Last file:
+    {% if last_file %}{{ last_file.filename }} at {{ last_file.received_at }}
+      ({{ last_file.record_count }} records)
+    {% else %}none yet &mdash; drop exports into the inbox folder{% endif %}</span>
+</div>
+{% endif %}
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Signals, last 7 days</h2>
+    <canvas id="chart7" height="140" data-chart
+            data-values='{{ chart | map(attribute="count") | list }}'
+            data-labels='{{ chart | map(attribute="day") | list }}'></canvas>
+  </section>
+  <section class="card">
+    <h2>In re-check (14-day watch)</h2>
+    {% if rechecking %}
+    <table>
+      <tr><th>PC</th><th>Incident</th><th>Severity</th><th>Watch until</th></tr>
+      {% for r in rechecking %}
+      <tr><td><a href="/pcs/{{ r.pc }}">{{ r.pc }}</a></td>
+        <td><a href="/incidents/{{ r.incident_id }}">{{ r.incident_key }}</a></td>
+        <td><span class="badge sev-{{ r.severity }}">{{ r.severity }}</span></td>
+        <td>{{ r.recheck_until[:10] }}</td></tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="meta">No PCs are currently in the post-cleanup re-check window.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section class="card">
+  <h2>Active incidents</h2>
+  {% if incidents %}
+  <table>
+    <tr><th>Incident</th><th>Type</th><th>Severity</th><th>PCs</th>
+        <th>Opened</th><th>Status</th></tr>
+    {% for i in incidents %}
+    <tr>
+      <td><a href="/incidents/{{ i.id }}"><strong>{{ i.incident_key }}</strong></a>
+        <div class="meta">{{ i.title }}</div></td>
+      <td>{{ i.type }}</td>
+      <td><span class="badge sev-{{ i.severity }}">{{ i.severity }}</span></td>
+      <td>{% for pc in i.pcs %}<a href="/pcs/{{ pc }}">{{ pc }}</a>{{ " " }}{% endfor %}</td>
+      <td>{{ i.created_at[:16].replace("T", " ") }}</td>
+      <td><span class="badge status-{{ i.status }}">{{ i.status }}</span></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="meta">No active incidents.</p>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Latest incident signals</h2>
+  {% if recent_signals %}
+  <table>
+    <tr><th>Time</th><th>PC</th><th>Incident</th><th>Rule</th><th>Title</th></tr>
+    {% for s in recent_signals %}
+    <tr><td>{{ s.ts[:16].replace("T", " ") }}</td>
+      <td><a href="/pcs/{{ s.pc }}">{{ s.pc }}</a></td>
+      <td><a href="/incidents/{{ s.incident_id }}">#{{ s.incident_id }}</a></td>
+      <td><code>{{ s.rule_id }}</code></td><td>{{ s.title }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="meta">No signals linked to incidents yet.</p>{% endif %}
+</section>
+{% endblock %}

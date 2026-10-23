@@ -1,0 +1,10 @@
+# Ransomware file extensions (one per line, with leading dot, case-insensitive).
+.locked
+.crypt
+.crypt5
+.r5a
+.ransom
+.wallet
+.keystrike
+.readme
+.cx

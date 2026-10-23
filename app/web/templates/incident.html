@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}{{ inc.incident_key }} - Threat Tracker{% endblock %}
+{% block content %}
+<h1>{{ inc.incident_key }} &mdash; {{ inc.title }}
+  <span class="badge sev-{{ inc.severity }}">{{ inc.severity }}</span>
+  <span class="badge status-{{ inc.status }}">{{ inc.status }}</span></h1>
+<p class="meta">
+  Type: <strong>{{ inc.type }}</strong>
+  {% if inc.type_source == "analyst" %}(analyst override){% else %}(auto-suggested){% endif %}
+  &middot; Priority: {{ inc.priority or "-" }}
+  &middot; Opened {{ inc.created_at[:16].replace("T", " ") }}
+  {% if inc.closed_at %}&middot; Closed {{ inc.closed_at[:16].replace("T", " ") }}{% endif %}
+</p>
+<div class="actions">
+  <a class="btn btn-primary" href="/incidents/{{ inc.id }}/report">View HTML report</a>
+  <a class="btn" href="/incidents/{{ inc.id }}/report/download">Download report</a>
+  {% if user.role in ('analyst', 'admin') and inc.status == 'open' %}
+  <form method="post" action="/incidents/{{ inc.id }}/close" class="inline">
+    <input name="note" placeholder="closing note (optional)">
+    <button class="btn btn-danger">Close incident</button></form>
+  {% elif user.role in ('analyst', 'admin') %}
+  <form method="post" action="/incidents/{{ inc.id }}/reopen" class="inline">
+    <input name="reason" placeholder="reason to reopen">
+    <button class="btn">Reopen</button></form>
+  {% endif %}
+</div>
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Assessment</h2>
+    <form method="post" action="/incidents/{{ inc.id }}/entry-point">
+      <label>Likely entry point
+        <textarea name="entry_point" rows="2"
+          placeholder="e.g. phishing attachment -> macro -> PowerShell download">{{ inc.entry_point }}</textarea></label>
+      {% if user.role in ('analyst', 'admin') %}
+      <button class="btn">Save entry point</button>{% endif %}
+    </form>
+    <form method="post" action="/incidents/{{ inc.id }}/actions">
+      <label>Actions taken
+        <textarea name="containment_actions" rows="3"
+          placeholder="e.g. isolated port 3 on switch, reimaged from golden image">{{ inc.containment_actions }}</textarea></label>
+      {% if user.role in ('analyst', 'admin') %}
+      <button class="btn">Save actions</button>{% endif %}
+    </form>
+    {% if user.role in ('analyst', 'admin') %}
+    <form method="post" action="/incidents/{{ inc.id }}/type" class="inline">
+      <label>Type override
+        <select name="itype">
+          {% for t in types %}<option value="{{ t }}"
+            {% if inc.type == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select></label>
+      <button class="btn">Set type</button>
+    </form>
+    <form method="post" action="/incidents/{{ inc.id }}/reimaged" class="inline">
+      <input type="hidden" name="reimaged" value="{{ 0 if inc.reimaged else 1 }}">
+      <button class="btn">{{ "Unmark reimaged" if inc.reimaged else "Mark reimaged" }}</button>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Response checklist</h2>
+    {% if checklist %}
+    <ul class="checklist">
+      {% for c in checklist %}
+      <li>
+        <form method="post" action="/incidents/{{ inc.id }}/checklist" class="inline">
+          <input type="hidden" name="item" value="{{ c.item }}">
+          <input type="hidden" name="done" value="{{ 0 if c.done else 1 }}">
+          <button class="check {{ 'done' if c.done }}" {% if user.role not in ('analyst','admin') %}disabled{% endif %}>
+            {{ '&#9989;' | safe if c.done else '&#9744;' | safe }}</button>
+        </form>
+        <span class="{{ 'strike' if c.done }}">{{ c.item }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="meta">No checklist for this type.</p>{% endif %}
+  </section>
+</div>
+
+<section class="card">
+  <h2>Affected PCs</h2>
+  <table>
+    <tr><th>PC</th><th>State</th><th>First seen</th><th>Owner</th><th>Verified</th>
+        <th>Re-check until</th><th>Passed</th><th>Workflow (analyst)</th></tr>
+    {% for p in pcs %}
+    <tr>
+      <td><a href="/pcs/{{ p.pc }}">{{ p.pc }}</a></td>
+      <td><span class="badge state-{{ p.state }}">{{ p.state }}</span></td>
+      <td>{{ (p.first_seen or "")[:16].replace("T", " ") or "-" }}</td>
+      <td>{{ p.owner or "-" }}</td>
+      <td>{{ (p.verified_at or "")[:16].replace("T", " ") or "-" }}</td>
+      <td>{{ (p.recheck_until or "")[:10] or "-" }}</td>
+      <td>{{ "yes" if p.recheck_passed else "no" }}</td>
+      <td>
+        {% if user.role in ('analyst', 'admin') %}
+        <form method="post" action="/incidents/{{ inc.id }}/pc/{{ p.pc }}/transition" class="inline">
+          <select name="new_state">
+            {% for s in states %}<option value="{{ s }}"
+              {% if p.state == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+          </select>
+          <input name="owner" placeholder="owner" value="{{ p.owner or '' }}" size="10">
+          <input name="note" placeholder="note" value="{{ p.note or '' }}" size="18">
+          <button class="btn">Update</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p class="meta small">Workflow: detected &rarr; isolated &rarr; reimaged &rarr; verified.
+    Verifying a PC starts the {{ recheck_days }}-day re-check; any new signal reopens the incident.</p>
+</section>
+
+<div class="grid-2">
+  <section class="card">
+    <h2>Timeline ({{ events | length }})</h2>
+    <table>
+      <tr><th>Time</th><th>Action</th><th>Detail</th><th>By</th></tr>
+      {% for ev in events | reverse %}
+      <tr><td class="nowrap">{{ ev.ts[:16].replace("T", " ") }}</td>
+        <td>{{ ev.action }}</td><td>{{ ev.detail }}</td><td>{{ ev.actor }}</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+  <section class="card">
+    <h2>Signals ({{ signals | length }})</h2>
+    <table>
+      <tr><th>Time</th><th>PC</th><th>Source</th><th>Rule</th><th>Evidence</th></tr>
+      {% for s in signals[:200] %}
+      <tr><td class="nowrap">{{ s.ts[:16].replace("T", " ") }}</td>
+        <td>{{ s.pc }}</td><td>{{ s.source_type or "-" }}</td>
+        <td><code>{{ s.rule_id }}</code><div class="meta">{{ s.category }} +{{ s.weight }}</div></td>
+        <td class="small">{{ summarize(s) }}</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+</div>
+{% endblock %}

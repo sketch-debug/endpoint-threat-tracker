@@ -1,0 +1,7 @@
+# Patterns that indicate shadow-copy deletion or backup tampering (ransomware prep).
+# Matched against 4688 command lines. One PCRE per line.
+(?i)vssadmin\s+(delete\s+shadows|resize\s+shadowstorage)
+(?i)wmic\s+shadowcopy\s+delete
+(?i)wbadmin\s+delete\s+(catalog|systemstatebackup|version)
+(?i)bcdedit\s+/set\s+\{default\}\s+(recoveryenabled\s+no|bootstatuspolicy\s+ignoreallfailures)
+(?i)delete\s+copies\s+of\s+the\s+volume\s+shadow\s+copy

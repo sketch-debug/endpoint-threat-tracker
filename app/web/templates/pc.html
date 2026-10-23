@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ pc }} - Threat Tracker{% endblock %}
+{% block content %}
+<h1>{{ pc }}
+  {% if score.severity %}<span class="badge sev-{{ score.severity }}">{{ score.severity }}</span>
+  {% endif %}</h1>
+<p class="meta">Current score <strong>{{ score.score }}</strong>
+  {% if score.alert %}&middot; above alert threshold
+  {% else %}&middot; below alert threshold (signals logged only){% endif %}
+  {% if score.rules %}&middot; rules: {{ score.rules | join(", ") }}{% endif %}
+  {% if score.categories %}&middot; categories: {{ score.categories | join(", ") }}{% endif %}
+</p>
+
+{% if incidents %}
+<section class="card">
+  <h2>Incidents involving {{ pc }}</h2>
+  <table>
+    <tr><th>Incident</th><th>Type</th><th>Severity</th><th>Status</th>
+        <th>PC state</th><th>Owner</th><th>Note</th></tr>
+    {% for i in incidents %}
+    <tr>
+      <td><a href="/incidents/{{ i.id }}">{{ i.incident_key }}</a></td>
+      <td>{{ i.type }}</td>
+      <td><span class="badge sev-{{ i.severity }}">{{ i.severity }}</span></td>
+      <td><span class="badge status-{{ i.status }}">{{ i.status }}</span></td>
+      <td><span class="badge state-{{ i.state }}">{{ i.state }}</span></td>
+      <td>{{ i.owner or "-" }}</td><td>{{ i.note or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>Signal timeline ({{ signals | length }})</h2>
+  {% if signals %}
+  <table>
+    <tr><th>Time</th><th>Rule</th><th>Category</th><th>Title</th><th>Incident</th></tr>
+    {% for s in signals %}
+    <tr><td class="nowrap">{{ s.ts[:16].replace("T", " ") }}</td>
+      <td><code>{{ s.rule_id }}</code></td><td>{{ s.category }}</td>
+      <td>{{ s.title }}<div class="meta small">{{ s.detail }}</div></td>
+      <td>{% if s.incident_id %}<a href="/incidents/{{ s.incident_id }}">#{{ s.incident_id }}</a>
+          {% else %}<span class="meta">-</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="meta">No signals for this PC.</p>{% endif %}
+</section>
+{% endblock %}

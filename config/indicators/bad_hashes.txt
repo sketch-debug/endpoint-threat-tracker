@@ -1,0 +1,5 @@
+# Known-bad file hashes (FAKE sample data, replace with your downloaded list).
+# SHA-256 (64 hex) or MD5 (32 hex), one per line. Matching is case-insensitive.
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+5d41402abc4b2a76b9719d911017c592
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

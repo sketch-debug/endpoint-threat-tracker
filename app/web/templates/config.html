@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Config - Threat Tracker{% endblock %}
+{% block content %}
+<h1>Configuration</h1>
+<div class="grid-2">
+  <section class="card">
+    <h2>Indicator lists</h2>
+    <p class="meta">Plain-text files, one entry per line, <code>#</code> comments allowed.
+      Saved edits keep a <code>.bak</code> copy.</p>
+    <ul>
+      {% for f in files %}
+      <li><a href="/config/indicators/{{ f[:-4] }}"><code>{{ f }}</code></a></li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section class="card">
+    <h2>Scoring</h2>
+    <p class="meta">Rule weights, thresholds and severity escalation.</p>
+    <a class="btn" href="/config/scoring">Edit scoring.yaml</a>
+    <h2>Runtime</h2>
+    <table>
+      <tr><th>Alert channels</th><td>{{ alert_channels | join(", ") or "disabled" }}</td></tr>
+      <tr><th>Re-check window</th><td>{{ recheck_days }} days</td></tr>
+    </table>
+    <p class="meta small">Email/Teams channels are configured in <code>.env</code>
+      (SMTP_*, TEAMS_WEBHOOK_URL) and enabled in
+      <code>config/app_config.yaml</code>; never put secrets in config files.</p>
+  </section>
+</div>
+<section class="card">
+  <h2>Incident types</h2>
+  <p class="meta">Defined in config/incident_types.yaml with checklists and
+    auto-suggestion rules.</p>
+  <p>{% for t in types %}<span class="badge">{{ t }}</span> {% endfor %}</p>
+</section>
+{% endblock %}
