@@ -21,3 +21,52 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Run test suite
         run: python -m pytest
+
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run the one-command installer
+        shell: cmd
+        run: .\install.bat -NoStart
+      - name: Start the dashboard and check HTTP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path data | Out-Null
+          [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString() |
+            Set-Content -Path data/last_feed_update.txt -NoNewline
+
+          $python = Join-Path $PWD '.venv\Scripts\python.exe'
+          $out = Join-Path $PWD 'ci-server.out.log'
+          $err = Join-Path $PWD 'ci-server.err.log'
+          $proc = Start-Process -FilePath $python -ArgumentList '-m', 'app.main' `
+            -WorkingDirectory "$PWD" -PassThru -NoNewWindow `
+            -RedirectStandardOutput $out -RedirectStandardError $err
+
+          try {
+            $loginCode = ''
+            for ($i = 0; $i -lt 60; $i++) {
+              $loginCode = & curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:8043/login
+              if ($loginCode -eq '200') { break }
+              Start-Sleep -Seconds 1
+            }
+            if ($loginCode -ne '200') {
+              Get-Content $out -ErrorAction SilentlyContinue
+              Get-Content $err -ErrorAction SilentlyContinue
+              throw "Dashboard did not answer on /login (last status: $loginCode)"
+            }
+
+            $rootCode = & curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:8043/
+            if ($rootCode -ne '303') {
+              throw "Expected GET / to redirect to /login with 303, got $rootCode"
+            }
+            Write-Host "Dashboard responded: /login=$loginCode /=$rootCode"
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
+          }
