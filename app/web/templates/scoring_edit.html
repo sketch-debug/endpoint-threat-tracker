@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Scoring - Threat Tracker{% endblock %}
+{% block content %}
+<h1>Edit scoring.yaml</h1>
+<p class="meta">Rule weights, thresholds and escalation matrix. Invalid YAML is rejected
+  before saving; the previous file is kept as <code>scoring.yaml.bak</code>.</p>
+{% if warnings %}
+<div class="flash flash-err">Warnings:
+  <ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></div>
+{% endif %}
+<form method="post" action="/config/scoring">
+  <textarea name="content" rows="32" class="code">{{ content }}</textarea>
+  <div class="actions">
+    <button class="btn btn-primary">Validate &amp; save</button>
+    <a class="btn btn-ghost" href="/config">Back to config</a>
+  </div>
+</form>
+{% endblock %}

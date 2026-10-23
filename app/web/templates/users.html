@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Users - Threat Tracker{% endblock %}
+{% block content %}
+<h1>Users &amp; roles</h1>
+<p class="meta">Roles: <strong>admin</strong> (config, indicators, users),
+  <strong>analyst</strong> (work incidents), <strong>viewer</strong> (read-only).
+  Passwords are hashed with PBKDF2-SHA256; logins are rate-limited.</p>
+<section class="card">
+  <h2>Existing users</h2>
+  <table>
+    <tr><th>Username</th><th>Role</th><th>Created</th><th>Last login</th><th>Actions</th></tr>
+    {% for u in users %}
+    <tr>
+      <td><strong>{{ u.username }}</strong></td>
+      <td>
+        <form method="post" action="/users/{{ u.username }}/role" class="inline">
+          <select name="role">
+            {% for r in ("admin", "analyst", "viewer") %}
+            <option value="{{ r }}" {% if u.role == r %}selected{% endif %}>{{ r }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn">Set role</button>
+        </form>
+      </td>
+      <td>{{ (u.created_at or "")[:10] }}</td>
+      <td>{{ (u.last_login or "")[:16].replace("T", " ") or "never" }}</td>
+      <td>
+        <form method="post" action="/users/{{ u.username }}/password" class="inline">
+          <input type="password" name="password" placeholder="new password" size="14">
+          <button class="btn">Reset</button>
+        </form>
+        <form method="post" action="/users/{{ u.username }}/delete" class="inline"
+              onsubmit="return confirm('Delete user {{ u.username }}?');">
+          <button class="btn btn-danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+<section class="card">
+  <h2>Add user</h2>
+  <form method="post" action="/users" class="inline-form">
+    <label>Username <input name="username" required></label>
+    <label>Password <input type="password" name="password" required minlength="8"></label>
+    <label>Role
+      <select name="role">
+        <option value="analyst">analyst</option>
+        <option value="viewer">viewer</option>
+        <option value="admin">admin</option>
+      </select></label>
+    <button class="btn btn-primary">Create user</button>
+  </form>
+</section>
+{% endblock %}

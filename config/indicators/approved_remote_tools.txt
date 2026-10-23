@@ -1,0 +1,4 @@
+# Remote-access tools APPROVED in this environment.
+# A process found in BOTH lists counts as approved (approved wins).
+# Example (uncomment and adjust to match your IT standard):
+# teamviewer.exe

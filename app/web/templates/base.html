@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Threat Tracker{% endblock %}</title>
+  <link rel="stylesheet" href="/static/tracker.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><a href="/">&#9888; Threat Tracker</a>
+    <span class="ver">v{{ version }}</span></div>
+  {% if user %}
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/incidents">Incidents</a>
+    <a href="/pcs">PCs</a>
+    {% if user.role in ('analyst', 'admin') %}<a href="/audit">Audit</a>{% endif %}
+    {% if user.role == 'admin' %}<a href="/config">Config</a><a href="/users">Users</a>{% endif %}
+  </nav>
+  <div class="userbox">
+    <span>{{ user.username }} <em>({{ user.role }})</em></span>
+    <form method="post" action="/logout" class="inline">
+      <button type="submit" class="btn btn-ghost">Log out</button>
+    </form>
+  </div>
+  {% endif %}
+</header>
+<main>
+  {% if msg %}<div class="flash flash-ok">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="flash flash-err">{{ err }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer>Endpoint Threat Detection &amp; Incident Tracker &mdash; internal defensive tool.
+Reads exported logs only; never scans or modifies other systems. Metadata only.</footer>
+<script src="/static/dashboard.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

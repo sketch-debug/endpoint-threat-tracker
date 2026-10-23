@@ -1,0 +1,6 @@
+# Known C2 / malware domains (FAKE sample data, replace with your downloaded list).
+# One per line, case-insensitive, subdomains included.
+c2.fake-malware.test
+update.fake-malware.test
+cdn.fake-malware.test
+panel.fake-rat.test

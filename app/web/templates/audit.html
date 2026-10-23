@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Audit - Threat Tracker{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+<p class="meta">Logins, incident changes, config edits and automated actions.
+  Append-only; newest first.</p>
+<table>
+  <tr><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th><th>IP</th></tr>
+  {% for e in entries %}
+  <tr><td class="nowrap">{{ e.ts[:19].replace("T", " ") }}</td>
+    <td>{{ e.actor }}</td><td><code>{{ e.action }}</code></td>
+    <td>{{ e.entity }}</td><td class="small">{{ e.detail }}</td><td>{{ e.ip or "-" }}</td></tr>
+  {% endfor %}
+</table>
+{% if not entries %}<p class="meta">No audit entries yet.</p>{% endif %}
+{% endblock %}

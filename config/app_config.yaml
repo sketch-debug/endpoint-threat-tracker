@@ -1,0 +1,53 @@
+# Main application configuration.
+# All paths are relative to the project root unless absolute.
+# Restart the service after editing (or use the dashboard config page for indicator files).
+
+paths:
+  inbox_dir: inbox
+  processed_dir: inbox/processed      # files moved here after successful ingest
+  error_dir: inbox/errors            # files moved here when rejected/unparsable
+  db_path: data/tracker.db
+  reports_dir: reports
+  log_dir: logs
+
+server:
+  host: 127.0.0.1
+  port: 8043                         # dashboard port (restrict with scripts/Set-FirewallRule.ps1)
+
+ingest:
+  poll_seconds: 30                   # how often the inbox watcher runs
+  max_file_bytes: 52428800           # 50 MB per file
+  allowed_extensions: [".csv", ".json", ".jsonl", ".txt", ".log"]
+
+# Optional static IP -> hostname map for network-only logs (DNS / firewall CSV).
+# One entry per line: 192.168.10.21=PC-LAB-01   (# comments allowed)
+# Hostnames are also learned automatically from process/persistence inventory files.
+ip_map_file: config/ip_map.txt
+
+# Column mapping for Technitium DNS Server CSV export (headers vary by version).
+# Matched case-insensitively against the CSV header; adjust after exporting a sample.
+technitium_columns:
+  timestamp: ["Time", "Timestamp", "DateTime"]
+  client: ["Client", "Client IP", "Query Iteration Client Address"]
+  domain: ["Domain", "Query", "Question", "Name"]
+
+# Window (hours) used for scoring and aggregate rules
+scoring_window_hours: 24
+
+# Off-hours used by the off-hours login rule: list of "HH:MM-HH:MM" local-time ranges
+off_hours: ["22:00-06:00"]
+
+alerts:
+  enabled: true
+  # Channels: "log" always records to the database/log file.
+  # "email" needs SMTP_* in .env, "teams" needs TEAMS_WEBHOOK_URL in .env.
+  channels: ["log"]
+  # "email" and "teams" are skipped (with a logged notice) when not configured.
+  min_interval_minutes: 0            # 0 = no extra throttling; dedup is by state change
+
+recheck:
+  days: 14                           # post-cleanup re-check window
+
+ingest_validation:
+  # Reject files whose first line does not look like a known header (defense against junk).
+  require_known_header: true

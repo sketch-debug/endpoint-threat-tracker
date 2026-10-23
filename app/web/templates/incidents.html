@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Incidents - Threat Tracker{% endblock %}
+{% block content %}
+<h1>Incidents</h1>
+<form method="get" class="filters">
+  <label>Status
+    <select name="status" onchange="this.form.submit()">
+      <option value="">all</option>
+      <option value="open" {% if status == "open" %}selected{% endif %}>open</option>
+      <option value="closed" {% if status == "closed" %}selected{% endif %}>closed</option>
+    </select></label>
+  <label>Severity
+    <select name="severity" onchange="this.form.submit()">
+      <option value="">all</option>
+      {% for s in ("critical", "high", "medium", "low") %}
+      <option value="{{ s }}" {% if severity == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select></label>
+  <label>Type
+    <select name="itype" onchange="this.form.submit()">
+      <option value="">all</option>
+      {% for t in types %}
+      <option value="{{ t }}" {% if itype == t %}selected{% endif %}>{{ t }}</option>
+      {% endfor %}
+    </select></label>
+</form>
+
+{% if incidents %}
+<table>
+  <tr><th>Incident</th><th>Type</th><th>Severity</th><th>Status</th><th>PCs</th>
+      <th>Opened</th><th>Closed</th><th>Priority</th></tr>
+  {% for i in incidents %}
+  <tr>
+    <td><a href="/incidents/{{ i.id }}"><strong>{{ i.incident_key }}</strong></a>
+      <div class="meta">{{ i.title }}</div></td>
+    <td>{{ i.type }}{% if i.type_source == "analyst" %} <span class="meta">(override)</span>{% endif %}</td>
+    <td><span class="badge sev-{{ i.severity }}">{{ i.severity }}</span></td>
+    <td><span class="badge status-{{ i.status }}">{{ i.status }}</span></td>
+    <td>{% for pc in i.pcs %}<a href="/pcs/{{ pc }}">{{ pc }}</a>{{ " " }}{% endfor %}</td>
+    <td>{{ i.created_at[:16].replace("T", " ") }}</td>
+    <td>{{ (i.closed_at or "")[:16].replace("T", " ") or "-" }}</td>
+    <td>{{ i.priority or "-" }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}<p class="meta">No incidents match these filters.</p>{% endif %}
+{% endblock %}
