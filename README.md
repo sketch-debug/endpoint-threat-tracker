@@ -48,23 +48,29 @@ PowerShell export scripts ──> inbox/*.csv|jsonl ──> Ingestor ──> obs
 * **Every path, threshold, weight, and indicator list is a config file** —
   nothing to edit in code to tune the tool.
 
-## Quick start (Windows, online)
+## Quick start (Windows)
+
+From a fresh copy of the project folder:
 
 ```
-python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-copy .env.example .env            & REM edit it: set TRACKER_ADMIN_PASSWORD
-start.bat                         & REM dashboard at http://127.0.0.1:8043/
+install.bat
 ```
 
-First login: `admin` / the `TRACKER_ADMIN_PASSWORD` you set (default
-`admin1234` — **change it**). Create analyst/viewer accounts on the Users page.
+The installer checks for Python 3.10+, creates or repairs `.venv`, installs
+the pinned dependencies (from `packages\` when present, otherwise from PyPI),
+creates `.env` with a random `SECRET_KEY`, asks for the dashboard admin
+password (or generates one and prints it), and starts the dashboard at
+http://127.0.0.1:8043/.
+
+First login: `admin` / the password you chose. Create analyst/viewer accounts
+on the Users page. `install.bat -NoStart` sets up without starting;
+`install.bat -Offline` requires the offline `packages\` folder. `start.bat`
+still works without PowerShell and reuses the same `.venv` and `.env`.
 
 To see it work immediately with generated demo data (no endpoints needed):
 
 ```
-.venv\Scripts\python generator\generate_fake_data.py     & REM writes samples\
-copy samples\*.csv inbox\                                & REM watcher ingests them
+.venv\Scripts\python generator\generate_fake_data.py --into-inbox
 ```
 
 Within a minute the dashboard shows a miner incident spanning three PCs, a
@@ -76,15 +82,13 @@ ransomware incident, and a below-threshold weak signal that correctly does
 1. On a connected machine with the same Python major.minor:
    `powershell -File scripts\Build-OfflinePackages.ps1`
 2. Copy the whole project folder (including the new `packages\`) to the target.
-3. `start.bat` installs from `packages\` with `--no-index` automatically, or:
-
-```
-.venv\Scripts\python -m pip install --no-index --find-links packages -r requirements.txt
-```
+3. Run `install.bat -Offline` (plain `install.bat` also uses `packages\`
+   automatically when it is present).
 
 ## Production install (Windows service)
 
 ```
+install.bat -NoStart
 powershell -ExecutionPolicy Bypass -File scripts\Install-Service.ps1
 Start-Service EndpointThreatTracker
 ```
