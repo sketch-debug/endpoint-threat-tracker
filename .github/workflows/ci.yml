@@ -73,19 +73,22 @@ jobs:
 
   installer-offline:
     runs-on: windows-latest
+    # shell: powershell (Windows PowerShell 5.1), not pwsh: install.bat launches
+    # powershell.exe, and a pwsh step hands that child a PowerShell 7 PSModulePath
+    # under which 5.1 cannot resolve Microsoft.PowerShell.Utility (Get-FileHash).
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - name: Prepare the virtual environment
-        shell: pwsh
+        shell: powershell
         run: |
           python -m venv .venv
           if ($LASTEXITCODE -ne 0) { throw 'Creating .venv failed.' }
           exit 0
       - name: Offline install must refuse a missing packages directory
-        shell: pwsh
+        shell: powershell
         run: |
           & .\install.bat -Offline *> guard.log
           $code = $LASTEXITCODE
@@ -100,7 +103,7 @@ jobs:
           Write-Host 'Offline install correctly refused the missing packages directory.'
           exit 0
       - name: Build the offline packages directory
-        shell: pwsh
+        shell: powershell
         run: |
           $venvPy = Join-Path $PWD '.venv\Scripts\python.exe'
           & .\scripts\Build-OfflinePackages.ps1 -Python $venvPy
@@ -115,7 +118,7 @@ jobs:
           Write-Host "packages\ holds $($files.Count) wheels."
           exit 0
       - name: Install offline against the prebuilt packages
-        shell: pwsh
+        shell: powershell
         run: |
           # A dead index: if anything reaches for PyPI the step fails, so a green
           # run proves pip resolved every dependency from packages\ alone.
