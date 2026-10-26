@@ -41,8 +41,13 @@ def pc_window(db: Database, pc: str, hours: int) -> list:
     dt = parse_ts(latest["ts"])
     if not dt:
         return []
+    # Clamp the anchor to the current time: one future/clock-skewed
+    # timestamp must not push the whole window forward and hide real recent
+    # signals (they would fall before `since` and detection goes silent).
     from datetime import timedelta
-    since = iso(dt - timedelta(hours=hours))
+    from .normalize import utcnow
+    anchor = min(dt, utcnow())
+    since = iso(anchor - timedelta(hours=hours))
     return db.query(
         "SELECT * FROM signals WHERE pc=? AND ts>=? ORDER BY ts", (pc, since))
 
@@ -55,12 +60,31 @@ def score_pc(db: Database, settings: Settings, pc: str) -> dict | None:
 
     weights = settings.rule_weights
     per_rule: dict[str, int] = {}
-    categories: set[str] = set()
+    rule_to_category: dict[str, str] = {}
     for row in rows:
         rid = row["rule_id"]
         weight = int(row["weight"]) or int(weights.get(rid, 0))
         per_rule[rid] = max(per_rule.get(rid, 0), weight)
-        categories.add(row["category"])
+        rule_to_category.setdefault(rid, row["category"])
+
+    # Apply meta gates: primary rule contributes only if at least one required co-occurring rule is present
+    meta_gates = settings.scoring_cfg.get("meta_gates", {}) or {}
+    present = set(per_rule.keys())
+    filtered_rule_ids = set()
+    for rid in per_rule:
+        gates = meta_gates.get(rid)
+        if gates:
+            required = set(gates)
+            # remove self-reference just in case
+            required.discard(rid)
+            if not (required & present):
+                continue
+        filtered_rule_ids.add(rid)
+    # rebuild per_rule with only gated rules
+    per_rule = {rid: per_rule[rid] for rid in filtered_rule_ids}
+    # categories derived from filtered rules only
+    categories = {rule_to_category.get(rid) for rid in per_rule if rule_to_category.get(rid)}
+    categories.discard(None)
 
     score = sum(per_rule.values())
     thresholds = settings.thresholds

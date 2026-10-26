@@ -1,0 +1,20 @@
+# Threat intel feed mappings
+# target_file corresponds to config/indicators/<target_file>.txt
+# mode: domains | hashes | text
+feeds:
+  # Example mappings - replace URLs with freely usable plain-text feeds you approve
+  c2_domains:
+    url: https://raw.githubusercontent.com/FireEye/cve-feed/master/data/cve_feed.csv
+    mode: domains
+  mining_pool_domains:
+    url: ""
+    mode: domains
+  bad_hashes:
+    url: ""
+    mode: hashes
+  # Add more as needed:
+  # suspicious_domains:
+  #   url: https://openphish.com/feed.txt
+  #   mode: domains
+feeds_update:
+  interval_days: 7

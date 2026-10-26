@@ -34,7 +34,10 @@ def read_csv(path: Path) -> tuple[set[str], list[dict]]:
     """
     try:
         with open(path, "r", encoding="utf-8-sig", errors="replace", newline="") as fh:
-            reader = csv.DictReader(fh)
+            # strict=True: a file that was cut off mid-write (unterminated
+            # quoted field) raises csv.Error here -> ParseError -> quarantine,
+            # instead of being silently half-ingested as valid data.
+            reader = csv.DictReader(fh, strict=True)
             if not reader.fieldnames:
                 raise ParseError("CSV has no header row")
             header = {norm_header(h) for h in reader.fieldnames if h}

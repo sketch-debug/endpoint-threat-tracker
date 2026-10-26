@@ -113,6 +113,12 @@ class Settings:
         return int(self.app.get("ingest", {}).get("max_file_bytes", 50 * 1024 * 1024))
 
     @property
+    def ingest_stability_seconds(self) -> float:
+        """Files newer than this are considered still-being-written (in-flight)
+        and are deferred to the next inbox scan."""
+        return float(self.app.get("ingest", {}).get("stability_seconds", 5))
+
+    @property
     def allowed_extensions(self) -> list[str]:
         exts = self.app.get("ingest", {}).get("allowed_extensions", [".csv", ".json", ".jsonl", ".txt", ".log"])
         return [e.lower() for e in exts]
@@ -162,6 +168,10 @@ class Settings:
     @property
     def types(self) -> dict:
         return dict(self.incident_types_cfg.get("types", {}))
+
+    @property
+    def retention_cfg(self) -> dict:
+        return dict(self.app.get("retention", {}) or {})
 
     def off_hours_minutes(self) -> list[tuple[int, int]]:
         """Parse off_hours entries like '22:00-06:00' into (start, end) minutes."""

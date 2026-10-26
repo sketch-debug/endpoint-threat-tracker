@@ -137,12 +137,42 @@ user store is a small interface in `app/auth.py` if you need it later.
 
 ## 7. Backup and upgrade
 
-* **Back up**: `data/tracker.db` (+ `-wal`/`-shm` if present), `config/`,
-  `.env`, `reports/`. Nothing else is state.
+* **Back up** (encrypted + verified — never copy `tracker.db` by hand while
+  the service runs; the WAL makes that unsafe):
+
+  ```
+  # one-off / manual backup (verify runs automatically before it reports OK)
+  powershell -ExecutionPolicy Bypass -File scripts\Backup-Database.ps1
+
+  # nightly at 02:30 (put BACKUP_PASSPHRASE=... in .env first, or the task
+  # will prompt; passphrase is read from the environment by the script)
+  schtasks /Create /TN "ThreatTracker-Backup" /SC DAILY /ST 02:30 /F `
+    /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\path\to\tool\scripts\Backup-Database.ps1\""
+
+  # check an archive (decrypt + integrity_check + row counts)
+  powershell -File scripts\Backup-Database.ps1 -Verify `
+    -Archive backups\tracker-backup-20261025-023000.enc
+  ```
+
+  The snapshot uses SQLite's online `.backup` API (safe while the service
+  runs) and archives `data/tracker.db`, `config/`, `.env` and `VERSION` as
+  AES-256-CBC + HMAC-SHA256 (PBKDF2 600k). Every backup re-opens what it
+  just wrote and fails loudly if integrity or counts differ. The last 14
+  archives are kept in `backups\` (`-Keep` to change).
+
+* **Restore** (into a clean folder, then swap):
+
+  ```
+  powershell -File scripts\Backup-Database.ps1 -Restore `
+    -Archive backups\tracker-backup-20261025-023000.enc `
+    -Target C:\tracker-restored
+  # stop the service, then copy data\ and config\ (and .env) over the install
+  ```
+
 * **Upgrade**: stop the service, replace code, `pip install -r
   requirements.txt`, start. The schema is created idempotently and versioned
   in `schema_meta`; migrations apply in order on startup.
-* **Rollback**: restore the backup folder; config files are backward
+* **Rollback**: restore the backup as above; config files are backward
   compatible within a major version (extra keys are ignored).
 
 ## 8. Troubleshooting

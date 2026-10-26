@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Feeds — Threat Tracker{% endblock %}
+{% block content %}
+<h2>Indicator Feeds</h2>
+{% if msg %}<div class="flash flash-ok">{{ msg }}</div>{% endif %}
+<div class="card">
+  <p>Auto-updater runs on startup if configured interval elapsed. Manual run:</p>
+  <form method="post">
+    <button class="btn btn-primary" name="run" value="1">Run feed update now</button>
+  </form>
+  <h3>Last update</h3>
+  <p>{{ last_update or "Never" }}</p>
+
+  <h3>Feed status</h3>
+  <table class="table">
+    <thead><tr><th>File</th><th>Feed URL</th><th>Type</th><th>Rows</th><th>Last hash</th></tr></thead>
+    <tbody>
+    {% for f in files %}
+      <tr>
+        <td>{{ f.name }}</td>
+        <td>{{ f.url }}</td>
+        <td>{{ f.type }}</td>
+        <td>{{ f.rows }}</td>
+        <td>{{ f.hash[:8] if f.hash else "-" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

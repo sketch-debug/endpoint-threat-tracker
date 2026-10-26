@@ -75,3 +75,14 @@ escalation:
     - [ransomware, evasion]
 
 severity_levels: [low, medium, high, critical]
+
+meta_gates:
+  proc_unsigned:
+    - proc_suspicious_path
+    - proc_bad_hash
+  proc_suspicious_path:
+    - proc_unsigned
+    - exec_suspicious_command
+  acct_offhours_login:
+    - acct_unusual_source
+    - acct_success_after_burst

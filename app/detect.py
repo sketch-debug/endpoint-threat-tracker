@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+
+from .normalize import now_iso
 
 from . import alerts, incidents, recheck, scoring
 from .config import Settings
@@ -49,10 +52,20 @@ class Detector:
 
     # ---- rule evaluation -------------------------------------------------
     def _records_for(self, pc: str) -> list[dict]:
+        """The most recent 50 000 observations for a PC, oldest first.
+
+        The cap protects rule evaluation at scale, so it must keep the NEWEST
+        evidence (P20): on a data-heavy PC the oldest 50 000 rows are months
+        old and today's activity never reaches the rules. The sub-select picks
+        by recency via idx_obs_pc_ts; the outer ORDER BY hands rules the same
+        chronological order they had before the cap.
+        """
         out: list[dict] = []
         for row in self.db.query(
+                "SELECT id, ts, record_type, payload FROM ("
                 "SELECT id, ts, record_type, payload FROM observations "
-                "WHERE pc=? ORDER BY ts LIMIT 50000", (pc,)):
+                "WHERE pc=? ORDER BY ts DESC, id DESC LIMIT 50000) "
+                "ORDER BY ts, id", (pc,)):
             rec = payload(row["payload"])
             rec["_obs_id"] = int(row["id"])
             rec["_record_type"] = row["record_type"]
@@ -152,17 +165,47 @@ class Detector:
         return sent
 
 
+# Process-local record of the last ingest cycle, read by /health so an
+# unattended service can prove its scheduler is alive (P2).
+_last_cycle: dict = {"started": None, "finished": None, "error": None}
+
+
+def last_cycle_info() -> dict:
+    return dict(_last_cycle)
+
+
+# One cycle at a time: the scheduled job and the manual /run/ingest button
+# share this lock, so a manual trigger can never run a second full cycle
+# (inbox files processed twice, alerts double-queued) alongside the scheduler.
+_cycle_lock = threading.Lock()
+
+
 def run_cycle(ingestor, detector: Detector) -> dict:
     """One full cycle: ingest inbox, detect, correlate, alert, re-check sweep.
 
     Alerts are flushed after the ingest transaction commits; the re-check
     sweep expires finished 14-day windows and auto-closes clean incidents.
+    Returns stats with `skipped: True` when another cycle is still running.
     """
-    stats = ingestor.scan_once()
-    stats["alerts_sent"] = detector.flush_alerts()
+    if not _cycle_lock.acquire(blocking=False):
+        log.info("ingest cycle already running; skipping this trigger")
+        return {"skipped": True, "files": 0, "ingested": 0, "duplicates": 0,
+                "errors": 0, "deferred": 0, "observations": 0, "signals": 0,
+                "incidents_touched": 0, "alerts_sent": 0, "recheck": {}}
     try:
-        stats["recheck"] = recheck.run_recheck_sweep(ingestor.db, ingestor.settings)
-    except Exception:  # noqa: BLE001
-        log.exception("recheck sweep failed")
-        stats["recheck"] = {"error": "sweep failed; see logs"}
-    return stats
+        _last_cycle["started"] = now_iso()
+        _last_cycle["error"] = None
+        stats = ingestor.scan_once()
+        stats["alerts_sent"] = detector.flush_alerts()
+        try:
+            stats["recheck"] = recheck.run_recheck_sweep(ingestor.db, ingestor.settings)
+        except Exception:  # noqa: BLE001
+            log.exception("recheck sweep failed")
+            stats["recheck"] = {"error": "sweep failed; see logs"}
+        return stats
+    except Exception as exc:
+        _last_cycle["error"] = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        _last_cycle["finished"] = now_iso()
+        _cycle_lock.release()

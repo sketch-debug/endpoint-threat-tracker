@@ -94,7 +94,9 @@ Start-Service EndpointThreatTracker
 ```
 
 Uses [NSSM](https://nssm.cc) to run the tracker as a service with rotated
-logs in `logs\`. `scripts\Uninstall-Service.ps1` removes it (keeps data).
+logs in `logs\`. The service starts automatically at boot and restarts the
+app if it crashes (10 s delay), so it recovers from crashes and reboots
+without an admin. `scripts\Uninstall-Service.ps1` removes it (keeps data).
 `scripts\Set-FirewallRule.ps1` documents the only firewall change this tool
 ever suggests — and only with an explicit `-AllowRemote` switch; the default
 bind is `127.0.0.1` and needs no rule at all.

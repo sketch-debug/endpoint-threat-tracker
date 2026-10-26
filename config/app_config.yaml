@@ -1,53 +1,55 @@
-# Main application configuration.
-# All paths are relative to the project root unless absolute.
-# Restart the service after editing (or use the dashboard config page for indicator files).
-
 paths:
   inbox_dir: inbox
-  processed_dir: inbox/processed      # files moved here after successful ingest
-  error_dir: inbox/errors            # files moved here when rejected/unparsable
+  processed_dir: inbox/processed
+  error_dir: inbox/errors
   db_path: data/tracker.db
   reports_dir: reports
   log_dir: logs
-
 server:
   host: 127.0.0.1
-  port: 8043                         # dashboard port (restrict with scripts/Set-FirewallRule.ps1)
-
+  port: 8043
 ingest:
-  poll_seconds: 30                   # how often the inbox watcher runs
-  max_file_bytes: 52428800           # 50 MB per file
-  allowed_extensions: [".csv", ".json", ".jsonl", ".txt", ".log"]
-
-# Optional static IP -> hostname map for network-only logs (DNS / firewall CSV).
-# One entry per line: 192.168.10.21=PC-LAB-01   (# comments allowed)
-# Hostnames are also learned automatically from process/persistence inventory files.
+  poll_seconds: 30
+  max_file_bytes: 52428800
+  stability_seconds: 5
+  allowed_extensions:
+  - .csv
+  - .json
+  - .jsonl
+  - .txt
+  - .log
 ip_map_file: config/ip_map.txt
-
-# Column mapping for Technitium DNS Server CSV export (headers vary by version).
-# Matched case-insensitively against the CSV header; adjust after exporting a sample.
 technitium_columns:
-  timestamp: ["Time", "Timestamp", "DateTime"]
-  client: ["Client", "Client IP", "Query Iteration Client Address"]
-  domain: ["Domain", "Query", "Question", "Name"]
-
-# Window (hours) used for scoring and aggregate rules
+  timestamp:
+  - Time
+  - Timestamp
+  - DateTime
+  client:
+  - Client
+  - Client IP
+  - Query Iteration Client Address
+  domain:
+  - Domain
+  - Query
+  - Question
+  - Name
 scoring_window_hours: 24
-
-# Off-hours used by the off-hours login rule: list of "HH:MM-HH:MM" local-time ranges
-off_hours: ["22:00-06:00"]
-
+off_hours:
+- 22:00-06:00
 alerts:
   enabled: true
-  # Channels: "log" always records to the database/log file.
-  # "email" needs SMTP_* in .env, "teams" needs TEAMS_WEBHOOK_URL in .env.
-  channels: ["log"]
-  # "email" and "teams" are skipped (with a logged notice) when not configured.
-  min_interval_minutes: 0            # 0 = no extra throttling; dedup is by state change
-
+  channels:
+  - log
+  min_interval_minutes: 0
 recheck:
-  days: 14                           # post-cleanup re-check window
-
-ingest_validation:
-  # Reject files whose first line does not look like a known header (defense against junk).
-  require_known_header: true
+  days: 14
+retention:
+  enabled: true
+  observations_days: 90
+  signals_days: 90
+  audit_days: 180
+  alerts_days: 365
+  batch_size: 5000
+health:
+  heartbeat_hours: 6
+  indicator_max_age_days: 14

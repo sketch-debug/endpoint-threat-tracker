@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS observations (
 );
 CREATE INDEX IF NOT EXISTS idx_obs_pc_ts ON observations(pc, ts);
 CREATE INDEX IF NOT EXISTS idx_obs_type_ts ON observations(record_type, ts);
+CREATE INDEX IF NOT EXISTS idx_obs_ts ON observations(ts);
 
 CREATE TABLE IF NOT EXISTS signals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS signals (
   dedup_key TEXT NOT NULL UNIQUE
 );
 CREATE INDEX IF NOT EXISTS idx_signals_pc_ts ON signals(pc, ts);
+CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(ts);
 CREATE INDEX IF NOT EXISTS idx_signals_incident ON signals(incident_id);
 CREATE INDEX IF NOT EXISTS idx_signals_rule ON signals(rule_id, ts);
 
@@ -167,13 +169,29 @@ CREATE TABLE IF NOT EXISTS alerts_log (
   kind TEXT NOT NULL,
   channel TEXT NOT NULL,
   dedup_key TEXT NOT NULL UNIQUE,
-  status TEXT NOT NULL,              -- sent | logged | disabled | failed | skipped_unconfigured
-  detail TEXT NOT NULL DEFAULT ''
+  status TEXT NOT NULL,              -- sent | logged | disabled | pending | failed | gave_up | skipped_unconfigured
+  detail TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_retry_at TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  subject TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_incident ON alerts_log(incident_id);
 """
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
+
+# Applied in order to databases created by an older version of this code.
+# Each migration is idempotent-guarded (ALTER ... fails if the column exists).
+MIGRATIONS: dict[str, list[str]] = {
+    "3": [
+        "ALTER TABLE alerts_log ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE alerts_log ADD COLUMN next_retry_at TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE alerts_log ADD COLUMN body TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE alerts_log ADD COLUMN subject TEXT NOT NULL DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS idx_alerts_due ON alerts_log(status, next_retry_at)",
+    ],
+}
 
 
 class Database:
@@ -192,10 +210,27 @@ class Database:
             except sqlite3.Error:
                 pass
             self._conn.executescript(SCHEMA)
-            self._conn.execute(
-                "INSERT OR IGNORE INTO schema_meta(key, value) VALUES('version', ?)",
-                (SCHEMA_VERSION,),
-            )
+            row = self._conn.execute(
+                "SELECT value FROM schema_meta WHERE key='version'").fetchone()
+            # Fresh databases report 0 so every migration still runs (the
+            # ALTERs then hit existing columns and are skipped); databases
+            # from older versions apply only what they are missing. The
+            # idx_alerts_due index lives in MIGRATIONS["3"] because creating
+            # it against a pre-v3 alerts_log (column absent) would abort the
+            # whole schema script above.
+            current = int(row["value"]) if row else 0
+            for version in range(current + 1, int(SCHEMA_VERSION) + 1):
+                for stmt in MIGRATIONS.get(str(version), []):
+                    try:
+                        self._conn.execute(stmt)
+                    except sqlite3.OperationalError as exc:
+                        if "duplicate column" not in str(exc).lower():
+                            raise
+                self._conn.execute(
+                    "INSERT INTO schema_meta(key, value) VALUES('version', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (str(version),),
+                )
             self._conn.commit()
 
     # ---- basic accessors -------------------------------------------------
