@@ -113,6 +113,7 @@ class TestUsers:
 
 class TestSessions:
     def test_roundtrip(self, db: Database, settings: Settings):
+        auth.create_user(db, "alice", "password123", "analyst")
         cookie = auth.create_session(db, settings, "alice", "analyst")
         user = auth.resolve_session(db, settings, cookie)
         assert user == {"username": "alice", "role": "analyst"}
