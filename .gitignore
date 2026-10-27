@@ -13,3 +13,6 @@ packages/
 samples/
 data_test/
 *.bak
+
+# command output redirected at the repo root (gh run watch, etc.)
+/*.out
