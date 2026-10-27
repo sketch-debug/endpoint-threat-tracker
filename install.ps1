@@ -119,7 +119,32 @@ function Get-PythonVersion {
     return [int]$value
 }
 
+function Get-PackagesWheelMinors {
+    # Wheels are built for a single interpreter: `-cp313-` in a filename means
+    # only Python 3.13 can install that wheel offline, while py3-none-any
+    # wheels impose nothing. Returns the minors found (13 => 3.13), or no
+    # output when the folder is absent or holds only universal wheels.
+    param([string]$Directory)
+    if (-not (Test-Path -LiteralPath $Directory)) {
+        return
+    }
+    $minors = @()
+    foreach ($file in Get-ChildItem -LiteralPath $Directory -File -Filter '*.whl' -ErrorAction SilentlyContinue) {
+        foreach ($tag in [regex]::Matches($file.Name, '-cp3(\d{2})-')) {
+            $minor = [int]$tag.Groups[1].Value
+            if ($minors -notcontains $minor) {
+                $minors += $minor
+            }
+        }
+    }
+    if ($minors.Count -eq 0) {
+        return
+    }
+    return ($minors | Sort-Object)
+}
+
 function Find-BasePython {
+    param([int[]]$PreferMinors = @())
     $candidates = @()
     $py = Get-Command py -ErrorAction SilentlyContinue
     if ($py) {
@@ -129,24 +154,31 @@ function Find-BasePython {
     if ($python) {
         $candidates += [pscustomobject]@{ Exe = $python.Source; Prefix = @() }
     }
+    $valid = @()
     foreach ($candidate in $candidates) {
         $version = Get-PythonVersion -FilePath $candidate.Exe -Arguments $candidate.Prefix
         if ($version -ge $MinPython) {
-            return [pscustomobject]@{
+            $valid += [pscustomobject]@{
                 Exe = $candidate.Exe
                 Prefix = $candidate.Prefix
                 Version = $version
             }
         }
     }
-    return $null
-}
-
-function Test-VenvPython {
-    if (-not (Test-Path -LiteralPath $VenvPy)) {
-        return $false
+    # A machine often has several Pythons - the launcher's default and the one
+    # on PATH need not agree, as on a CI runner where py -3 is newer than the
+    # interpreter packages\ was built with. Without a preference the launcher
+    # wins by position alone and the offline install dies on 'no matching
+    # distribution', so a matching interpreter goes first.
+    foreach ($candidate in $valid) {
+        if ($PreferMinors -contains ($candidate.Version % 100)) {
+            return $candidate
+        }
     }
-    return (Get-PythonVersion -FilePath $VenvPy) -ge $MinPython
+    if ($valid.Count -gt 0) {
+        return $valid[0]
+    }
+    return $null
 }
 
 function ConvertFrom-SecureStringPlain {
@@ -168,20 +200,58 @@ Write-Host "Project: $Root"
 
 # ---- Python ---------------------------------------------------------------
 Write-Step 'Checking Python'
-$basePython = Find-BasePython
+# Only an offline install constrains the choice: the wheels in packages\ fit
+# exactly one major.minor, so that is the interpreter worth finding first.
+$wheelMinors = @()
+$wantedText = ''
+if ($Offline) {
+    $wheelMinors = @(Get-PackagesWheelMinors -Directory $PackagesDir)
+    if ($wheelMinors.Count -gt 0) {
+        $wantedText = ($wheelMinors | ForEach-Object { "3.$_" }) -join ' / '
+    }
+}
+$basePython = Find-BasePython -PreferMinors $wheelMinors
 if ($null -eq $basePython) {
     Fail 'Python 3.10 or newer was not found.' "Install it from https://www.python.org/downloads/ (tick 'Add python.exe to PATH'), then rerun install.bat."
 }
 $versionText = '{0}.{1}' -f ([math]::Floor($basePython.Version / 100)), ($basePython.Version % 100)
 Write-Host "Using Python $versionText ($($basePython.Exe))"
+if ($wantedText) {
+    if ($wheelMinors -contains ($basePython.Version % 100)) {
+        Write-Host "packages\ holds wheels for Python $wantedText - using a matching interpreter."
+    } else {
+        Write-Host "WARNING: packages\ holds wheels for Python $wantedText, but no interpreter matching them was found (chose $versionText); the offline install will likely fail." -ForegroundColor Yellow
+    }
+}
 
 # ---- Virtual environment --------------------------------------------------
 Write-Step 'Preparing the virtual environment'
-if (Test-VenvPython) {
+$venvVersion = 0
+if (Test-Path -LiteralPath $VenvPy) {
+    $venvVersion = Get-PythonVersion -FilePath $VenvPy
+}
+$venvUsable = ($venvVersion -ge $MinPython)
+$recreateReason = ''
+if ($venvUsable -and $wantedText -and $wheelMinors -notcontains ($venvVersion % 100)) {
+    # Offline, a venv built for a different interpreter is as unusable as a
+    # missing one - but only rebuild it when a matching interpreter is there
+    # to rebuild with, and say which version the wheels actually need.
+    if ($wheelMinors -contains ($basePython.Version % 100)) {
+        $venvUsable = $false
+        $recreateReason = "it runs Python 3.$($venvVersion % 100), and packages\ holds wheels for $wantedText"
+    } else {
+        Write-Host "WARNING: the existing .venv runs Python 3.$($venvVersion % 100); packages\ holds wheels for $wantedText." -ForegroundColor Yellow
+    }
+}
+if ($venvUsable) {
     Write-Host 'Reusing the existing .venv'
 } else {
     if (Test-Path -LiteralPath $VenvDir) {
-        Write-Host 'Existing .venv is missing or broken; recreating it.'
+        if ($recreateReason) {
+            Write-Host "Existing .venv is unusable ($recreateReason); recreating it."
+        } else {
+            Write-Host 'Existing .venv is missing or broken; recreating it.'
+        }
         Remove-Item -LiteralPath $VenvDir -Recurse -Force
     }
     Write-Host 'Creating .venv ...'

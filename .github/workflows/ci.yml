@@ -146,14 +146,11 @@ jobs:
           # Before install.bat cleared the inherited PSModulePath, install.ps1 died
           # here with "Get-FileHash is not recognized" (exit non-zero).
           Remove-Item -Recurse -Force .venv -ErrorAction SilentlyContinue
-          # Recreate the venv with the interpreter packages\ was built with (the
-          # one setup-python put on PATH - the same `python -m venv` the Prepare
-          # step used). install.ps1 prefers the py launcher, whose default here is
-          # a NEWER Python than packages\ holds, so letting it choose would build
-          # .venv for the wrong major.minor and this offline install would find no
-          # wheel for pyyaml - a mismatch the build script explicitly warns about.
-          python -m venv .venv
-          if ($LASTEXITCODE -ne 0) { throw 'Recreating .venv for the offline install failed.' }
+          # Deleting the venv also hands the interpreter choice back to
+          # install.ps1: the py launcher's default here is NEWER than the wheels
+          # in packages\ (the Prepare/Build steps made them with setup-python's
+          # 3.13), so this step only passes if the installer itself picks the
+          # interpreter the wheels were built for.
           $env:PIP_INDEX_URL = 'http://127.0.0.1:9/simple'
           & .\install.bat -Offline -NoStart *> pwsh.log
           $code = $LASTEXITCODE
