@@ -42,6 +42,16 @@
   function init() {
     var charts = document.querySelectorAll("canvas[data-chart]");
     for (var i = 0; i < charts.length; i++) drawChart(charts[i]);
+    // Destructive forms ask first; data-confirm keeps the handler out of
+    // the markup so CSP can stay script-src 'self' with no inline scripts.
+    var guarded = document.querySelectorAll("form[data-confirm]");
+    for (var j = 0; j < guarded.length; j++) {
+      (function (form) {
+        form.addEventListener("submit", function (e) {
+          if (!window.confirm(form.getAttribute("data-confirm"))) e.preventDefault();
+        });
+      })(guarded[j]);
+    }
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

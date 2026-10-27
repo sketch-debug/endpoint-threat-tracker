@@ -26,14 +26,34 @@ def _global_context(request: Request) -> dict:
     return {
         "user": getattr(request.state, "user", None),
         "version": getattr(settings, "version", "") if settings else "",
-        "msg": request.query_params.get("msg", ""),
-        "err": request.query_params.get("err", ""),
         "health": health,
     }
 
 
-templates = Jinja2Templates(directory=str(TEMPLATE_DIR),
-                            context_processors=[_global_context])
+class _Templates(Jinja2Templates):
+    """TemplateResponse where query-param flashes are defaults, not overrides.
+
+    Starlette runs context processors AFTER the handler context, so the old
+    processor's ?msg=/?err= entries silently overwrote whatever the handler
+    passed - every direct-render flash ("settings saved", "scoring.yaml
+    saved") was invisible. Query params are merged here instead, before
+    rendering, with handler-passed values winning.
+    """
+
+    def TemplateResponse(self, name, context, *args, **kwargs):
+        if isinstance(name, str) and isinstance(context, dict):
+            request = context.get("request")
+            if request is not None:
+                context = {
+                    "msg": request.query_params.get("msg", ""),
+                    "err": request.query_params.get("err", ""),
+                    **context,
+                }
+        return super().TemplateResponse(name, context, *args, **kwargs)
+
+
+templates = _Templates(directory=str(TEMPLATE_DIR),
+                       context_processors=[_global_context])
 
 
 def install_routes(app: FastAPI, settings: Settings, db: Database) -> None:

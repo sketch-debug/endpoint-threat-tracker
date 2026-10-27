@@ -29,7 +29,9 @@ SESSION_TTL_HOURS = 12
 _ROLES = ("admin", "analyst", "viewer")
 _ROLE_RANK = {"viewer": 1, "analyst": 2, "admin": 3}
 
-_PBKDF2_ITERATIONS = 390_000
+# OWASP's current PBKDF2-HMAC-SHA256 recommendation. Iterations are stored
+# per hash, so hashes minted at the old 390k cost keep verifying.
+_PBKDF2_ITERATIONS = 600_000
 
 
 def hash_password(password: str, *, salt_hex: str | None = None,
@@ -48,6 +50,22 @@ def verify_password(password: str, stored: str) -> bool:
         return hmac.compare_digest(candidate, stored)
     except (ValueError, AttributeError):
         return False
+
+
+_DUMMY_HASH: str | None = None
+
+
+def _dummy_hash() -> str:
+    """Lazily built hash of a random value.
+
+    authenticate() runs one PBKDF2 against it when the username does not
+    exist, so an unknown account costs the same time as a real one and
+    response latency cannot be used to enumerate users.
+    """
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
+    return _DUMMY_HASH
 
 
 # ---------------------------------------------------------------- users ----
@@ -170,7 +188,12 @@ def authenticate(db: Database, username: str, password: str, client_ip: str = ""
         audit(db, "system", "login_blocked", username, f"too many attempts from {client_ip}")
         raise HTTPException(status_code=429, detail="too many login attempts; try later")
     row = db.one("SELECT * FROM users WHERE username=?", (username,))
-    ok = bool(row) and verify_password(password or "", row["password_hash"])
+    if row is None:
+        # burn one PBKDF2 anyway: equal cost for existing and missing users
+        verify_password(password or "", _dummy_hash())
+        audit(db, "system", "login_failed", username, f"ip={client_ip}")
+        return None
+    ok = verify_password(password or "", row["password_hash"])
     if not ok:
         audit(db, "system", "login_failed", username, f"ip={client_ip}")
         return None

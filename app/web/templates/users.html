@@ -30,7 +30,7 @@
           <button class="btn">Reset</button>
         </form>
         <form method="post" action="/users/{{ u.username }}/delete" class="inline"
-              onsubmit="return confirm('Delete user {{ u.username }}?');">
+              data-confirm="Delete user {{ u.username }}?">
           <button class="btn btn-danger">Delete</button>
         </form>
       </td>
