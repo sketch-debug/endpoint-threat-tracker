@@ -71,6 +71,17 @@ jobs:
             }
           }
 
+      # The documented journey (README quick start, FIRST_DAY_RUNBOOK) is
+      # install -> smoke_test.bat -> dashboard, and CI used to stop at an HTTP
+      # probe: nothing executed the 11 steps, so a regression in ingest,
+      # detection, the report page or the login handoff could merge green.
+      # The step above already wrote data/last_feed_update.txt (so the app
+      # under test does not fetch feeds) and stopped its own instance, leaving
+      # port 8043 free for the instance the smoke test starts.
+      - name: Run the smoke test end to end
+        shell: cmd
+        run: .\smoke_test.bat
+
   installer-offline:
     runs-on: windows-latest
     # Most steps use shell: powershell (5.1). The final step deliberately runs
@@ -146,14 +157,11 @@ jobs:
           # Before install.bat cleared the inherited PSModulePath, install.ps1 died
           # here with "Get-FileHash is not recognized" (exit non-zero).
           Remove-Item -Recurse -Force .venv -ErrorAction SilentlyContinue
-          # Recreate the venv with the interpreter packages\ was built with (the
-          # one setup-python put on PATH - the same `python -m venv` the Prepare
-          # step used). install.ps1 prefers the py launcher, whose default here is
-          # a NEWER Python than packages\ holds, so letting it choose would build
-          # .venv for the wrong major.minor and this offline install would find no
-          # wheel for pyyaml - a mismatch the build script explicitly warns about.
-          python -m venv .venv
-          if ($LASTEXITCODE -ne 0) { throw 'Recreating .venv for the offline install failed.' }
+          # Deleting the venv also hands the interpreter choice back to
+          # install.ps1: the py launcher's default here is NEWER than the wheels
+          # in packages\ (the Prepare/Build steps made them with setup-python's
+          # 3.13), so this step only passes if the installer itself picks the
+          # interpreter the wheels were built for.
           $env:PIP_INDEX_URL = 'http://127.0.0.1:9/simple'
           & .\install.bat -Offline -NoStart *> pwsh.log
           $code = $LASTEXITCODE
