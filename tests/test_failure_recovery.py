@@ -25,11 +25,8 @@ import pytest
 import app.ingest as ingest_mod
 import app.main as main_mod
 from app import alerts, detect, scoring
-from app.config import Settings
-from app.db import Database
-from app.indicators import Indicators
 from app.ingest import Ingestor
-from app.normalize import now_iso, parse_ts, utcnow
+from app.normalize import now_iso, utcnow
 
 ROOT = Path(__file__).resolve().parent.parent
 

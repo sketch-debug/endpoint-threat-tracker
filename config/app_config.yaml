@@ -49,6 +49,7 @@ retention:
   signals_days: 90
   audit_days: 180
   alerts_days: 365
+  files_days: 90
   batch_size: 5000
 health:
   heartbeat_hours: 6

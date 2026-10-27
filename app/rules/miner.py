@@ -1,8 +1,7 @@
 """Cryptomining detection rules (the original product core)."""
 from __future__ import annotations
 
-from ..normalize import window_start
-from .base import Ctx, ObsRule, PCRule, SignalDraft, day_bucket, fnum, hour_bucket, basename
+from .base import Ctx, ObsRule, PCRule, SignalDraft, fnum, hour_bucket, basename
 
 
 class DnsMiningPool(ObsRule):

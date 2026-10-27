@@ -38,6 +38,10 @@ class _Templates(Jinja2Templates):
     passed - every direct-render flash ("settings saved", "scoring.yaml
     saved") was invisible. Query params are merged here instead, before
     rendering, with handler-passed values winning.
+
+    It also keeps the app's legacy TemplateResponse(name, ctx-with-request)
+    call shape working: Starlette 1.x only accepts (request, name, ctx), so
+    the translation lives here instead of at 22 call sites.
     """
 
     def TemplateResponse(self, name, context, *args, **kwargs):
@@ -49,6 +53,8 @@ class _Templates(Jinja2Templates):
                     "err": request.query_params.get("err", ""),
                     **context,
                 }
+                return super().TemplateResponse(request, name, context,
+                                                *args, **kwargs)
         return super().TemplateResponse(name, context, *args, **kwargs)
 
 

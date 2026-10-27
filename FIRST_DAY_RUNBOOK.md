@@ -47,7 +47,9 @@ prompt — `install.bat` clears `PSModulePath` for that case.)
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-**Expected:** last line contains `161 passed` (exit code 0, ~1–2 min).
+**Expected:** last line ends `passed` with exit code 0 (~1–2 min); any
+failing test makes pytest exit non-zero. (The exact count grows with the
+suite - what matters is zero failures.)
 
 ## 3. Smoke test (fake data, 11 checks)
 

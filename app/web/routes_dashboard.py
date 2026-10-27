@@ -25,7 +25,6 @@ def _require(request: Request, minimum: str) -> dict:
 async def dashboard(request: Request):
     _require(request, "viewer")
     db = request.app.state.db
-    settings = request.app.state.settings
     open_incidents = db.query(
         "SELECT * FROM incidents WHERE status='open' ORDER BY "
         "CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 "
@@ -144,7 +143,7 @@ async def run_ingest(request: Request):
 
 @router.post("/run/recheck")
 async def run_recheck(request: Request):
-    user = _require(request, "analyst")
+    _require(request, "analyst")
     from .. import recheck as recheck_mod
     result = recheck_mod.run_recheck_sweep(request.app.state.db,
                                            request.app.state.settings)

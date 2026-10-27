@@ -8,6 +8,11 @@ allowlist of append-only tables is ever touched:
   * audit_log     - default 180 days
   * alerts_log    - default 365 days
 
+On top of the table purge, aged files in processed/, errors/ and reports/
+delete with `files_days` (default 90): processed copies survive in the
+database, error files are dead input and reports are rebuilt on demand by
+report.write_report - inbox/ (still-arriving drops) is never touched.
+
 Incidents, incident_pcs/incident_events/incident_keys/checklist_state, pcs
 and the files dedup ledger are NEVER deleted here: case history must
 outlive every retention window, and dropping ledger rows would let old
@@ -24,7 +29,7 @@ from datetime import timedelta
 from .audit import audit
 from .config import Settings
 from .db import Database
-from .normalize import iso, now_iso, utcnow
+from .normalize import iso, utcnow
 
 log = logging.getLogger("tracker.retention")
 
@@ -33,6 +38,7 @@ _DEFAULTS = {
     "signals_days": 90,
     "audit_days": 180,
     "alerts_days": 365,
+    "files_days": 90,
     "batch_size": 5000,
 }
 
@@ -54,9 +60,33 @@ def _purge(db: Database, table: str, where: str, params: tuple, batch: int) -> i
     return total
 
 
+def _purge_files(settings: Settings, cutoff_epoch: float) -> int:
+    """Delete files older than `cutoff_epoch` from processed/, errors/ and
+    reports/. All three are safe to reclaim (the data lives on in the DB,
+    and reports are rebuilt on demand); inbox/ in-flight drops are never
+    touched. A vanished or locked file is skipped - the next pass retries."""
+    removed = 0
+    for directory in (settings.processed_dir, settings.error_dir,
+                      settings.reports_dir):
+        try:
+            entries = list(directory.iterdir())
+        except OSError:
+            continue
+        for path in entries:
+            if not path.is_file():
+                continue
+            try:
+                if path.stat().st_mtime < cutoff_epoch:
+                    path.unlink()
+                    removed += 1
+            except OSError:
+                continue
+    return removed
+
+
 def run_retention(db: Database, settings: Settings, now=None) -> dict:
-    """One retention pass. Returns rows deleted per table (or
-    {"skipped": "disabled"}). Never raises past its caller."""
+    """One retention pass. Returns rows deleted per table plus aged files
+    removed (or {"skipped": "disabled"}). Never raises past its caller."""
     cfg = settings.retention_cfg
     if not cfg.get("enabled", True):
         return {"skipped": "disabled"}
@@ -78,6 +108,8 @@ def run_retention(db: Database, settings: Settings, now=None) -> dict:
                           (sig_cut,), batch),
         "audit_log": _purge(db, "audit_log", "ts < ?", (aud_cut,), batch),
         "alerts_log": _purge(db, "alerts_log", "ts < ?", (alr_cut,), batch),
+        "files": _purge_files(
+            settings, (now - timedelta(days=days["files_days"])).timestamp()),
     }
     total = sum(deleted.values())
     if total:

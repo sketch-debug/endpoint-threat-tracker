@@ -13,9 +13,6 @@ from fastapi.testclient import TestClient
 import app.detect as detect_mod
 import app.main as main_mod
 from app import health as health_mod
-from app.config import Settings
-from app.db import Database
-from app.indicators import Indicators
 from app.ingest import Ingestor
 from app.normalize import iso, utcnow
 
@@ -151,3 +148,30 @@ class TestSchedulerAndLogs:
 
 
 import logging.handlers  # noqa: E402  (used by test_logs_rotate_by_size)
+
+
+class TestHealthCache:
+    def test_payload_is_memoized_until_ttl_or_config_changes(
+            self, settings, db, monkeypatch):
+        health_mod.clear_cache()
+        calls = {"n": 0}
+        original = health_mod.indicator_age_days
+
+        def counting(s):
+            calls["n"] += 1
+            return original(s)
+
+        monkeypatch.setattr(health_mod, "indicator_age_days", counting)
+
+        health_mod.health_payload(db, settings)
+        health_mod.health_payload(db, settings)
+        assert calls["n"] == 1, "second call inside the TTL recomputed"
+
+        settings.app["health"] = {"heartbeat_hours": 9999,
+                                  "indicator_max_age_days": 99999}
+        health_mod.health_payload(db, settings)
+        assert calls["n"] == 2, "edited health config must bust the cache"
+
+        health_mod.clear_cache()
+        health_mod.health_payload(db, settings)
+        assert calls["n"] == 3

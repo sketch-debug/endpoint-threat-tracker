@@ -4,13 +4,12 @@ shows a degraded banner when /health says so (P12)."""
 from __future__ import annotations
 
 import logging
-import sys
 
 import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main_mod
-from app.errors import REDACTED, RedactSecretsFilter, install_error_handlers
+from app.errors import REDACTED, RedactSecretsFilter
 
 
 class TestSecretRedaction:

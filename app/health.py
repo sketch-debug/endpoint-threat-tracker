@@ -57,8 +57,8 @@ def _ingest_age_hours(db: Database) -> float | None:
     return round((utcnow() - dt).total_seconds() / 3600.0, 2)
 
 
-def health_payload(db: Database, settings: Settings) -> dict:
-    """GET /health body. Unauthenticated by design (bind is 127.0.0.1)."""
+def _build_payload(db: Database, settings: Settings) -> dict:
+    """Uncached /health computation; health_payload memoizes this."""
     cfg = _cfg(settings)
     last = _last_ingest(db)
     pending = db.one(
@@ -111,6 +111,46 @@ def health_payload(db: Database, settings: Settings) -> dict:
         "indicator_age_days": ind_age,
         "problems": problems,
     }
+
+
+_CACHE_TTL_SECONDS = 10.0
+_cache: dict = {"key": None, "at": 0.0, "payload": None}
+
+
+def clear_cache() -> None:
+    """Drop the memoized payload (tests, and after a restore/config edit)."""
+    _cache["key"] = None
+    _cache["at"] = 0.0
+    _cache["payload"] = None
+
+
+def _cache_key(db: Database, settings: Settings) -> tuple:
+    """Cheap freshness signals: new data (db mtime) or edited thresholds."""
+    try:
+        mtime = settings.db_path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+    return (id(db), id(settings), str(settings.app.get("health", {})), mtime)
+
+
+def health_payload(db: Database, settings: Settings) -> dict:
+    """GET /health body. Unauthenticated by design (bind is 127.0.0.1).
+
+    Memoized for _CACHE_TTL_SECONDS: the dashboard banner calls this on
+    every page render, and its db/disk probes are too costly per render.
+    The key carries the db mtime and the health config, so fresh data or an
+    edited threshold rebuilds the payload instead of serving it stale.
+    """
+    key = _cache_key(db, settings)
+    payload = _cache["payload"]
+    if (payload is not None and _cache["key"] == key
+            and (time.monotonic() - _cache["at"]) < _CACHE_TTL_SECONDS):
+        return payload
+    payload = _build_payload(db, settings)
+    _cache["key"] = key
+    _cache["at"] = time.monotonic()
+    _cache["payload"] = payload
+    return payload
 
 
 def run_heartbeat(db: Database, settings: Settings, now=None) -> dict:

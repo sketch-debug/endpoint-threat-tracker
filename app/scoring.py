@@ -10,7 +10,6 @@ Model (documented in README):
 """
 from __future__ import annotations
 
-import json
 import logging
 
 from .config import Settings
