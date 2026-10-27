@@ -74,6 +74,51 @@ def set_password(db: Database, username: str, new_password: str, actor: str) -> 
         audit(db, actor, "user_password", username.lower(), "password changed")
 
 
+def env_password_status(db: Database, username: str, password: str) -> str:
+    """Does the account accept `password`? Pure check, never writes.
+
+    Returns no-password / short / no-admin / matched / mismatch.
+    """
+    if not password:
+        return "no-password"
+    if len(password) < 8:
+        return "short"
+    row = db.one("SELECT password_hash FROM users WHERE username=?",
+                 (username.lower(),))
+    if row is None:
+        return "no-admin"
+    return "matched" if verify_password(password, row["password_hash"]) \
+        else "mismatch"
+
+
+def adopt_env_password(db: Database, username: str, password: str,
+                       actor: str = "installer") -> str:
+    """Make the password install.ps1 is about to print actually work.
+
+    install.ps1 writes TRACKER_ADMIN_PASSWORD into .env - freshly generated
+    when .env was missing, or -AdminPassword applied over a default - and
+    prints it as the first login. But bootstrap_admin only *creates* the
+    account: on an instance that already has one, the advertised password is
+    then refused, five refusals lock the account for five minutes, and the
+    only reset short of knowing the old password is deleting the database.
+
+    Called by the installer at that moment, never at startup (a startup sync
+    would silently undo a password changed later on the Users page). Returns
+    what happened so the installer can print it:
+      no-password / short / no-admin / matched / synced / error:...
+    """
+    status = env_password_status(db, username, password)
+    if status != "mismatch":
+        return status
+    try:
+        set_password(db, username, password, actor=actor)
+    except Exception as exc:  # defensive: never break the caller over this
+        log.warning("could not adopt the installer password for %s: %s",
+                    username, exc)
+        return f"error:{exc}"
+    return "synced"
+
+
 def set_role(db: Database, username: str, role: str, actor: str) -> None:
     if role not in _ROLES:
         raise ValueError(f"role must be one of {_ROLES}")
