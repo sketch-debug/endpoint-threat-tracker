@@ -70,3 +70,70 @@ jobs:
               Stop-Process -Id $proc.Id -Force
             }
           }
+
+  installer-offline:
+    runs-on: windows-latest
+    # shell: powershell (Windows PowerShell 5.1), not pwsh: install.bat launches
+    # powershell.exe, and a pwsh step hands that child a PowerShell 7 PSModulePath
+    # under which 5.1 cannot resolve Microsoft.PowerShell.Utility (Get-FileHash).
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Prepare the virtual environment
+        shell: powershell
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw 'Creating .venv failed.' }
+          exit 0
+      - name: Offline install must refuse a missing packages directory
+        shell: powershell
+        run: |
+          & .\install.bat -Offline *> guard.log
+          $code = $LASTEXITCODE
+          $out = Get-Content -LiteralPath guard.log -Raw
+          Write-Host $out
+          if ($code -eq 0) {
+            throw 'install.bat -Offline succeeded even though packages\ is absent.'
+          }
+          if (-not $out.Contains('packages\ is missing or empty')) {
+            throw "install.bat -Offline failed for another reason (exit $code); see guard.log."
+          }
+          Write-Host 'Offline install correctly refused the missing packages directory.'
+          exit 0
+      - name: Build the offline packages directory
+        shell: powershell
+        run: |
+          $venvPy = Join-Path $PWD '.venv\Scripts\python.exe'
+          & .\scripts\Build-OfflinePackages.ps1 -Python $venvPy
+          $files = @(Get-ChildItem -LiteralPath packages -File)
+          if ($files.Count -eq 0) {
+            throw 'Build-OfflinePackages.ps1 produced no files in packages\.'
+          }
+          $notWheels = @($files | Where-Object Extension -NE '.whl')
+          if ($notWheels.Count -gt 0) {
+            throw "packages\ must hold wheels only, found: $($notWheels.Name -join ', ')"
+          }
+          Write-Host "packages\ holds $($files.Count) wheels."
+          exit 0
+      - name: Install offline against the prebuilt packages
+        shell: powershell
+        run: |
+          # A dead index: if anything reaches for PyPI the step fails, so a green
+          # run proves pip resolved every dependency from packages\ alone.
+          $env:PIP_INDEX_URL = 'http://127.0.0.1:9/simple'
+          & .\install.bat -Offline -NoStart *> offline.log
+          $code = $LASTEXITCODE
+          $out = Get-Content -LiteralPath offline.log -Raw
+          Write-Host $out
+          if ($code -ne 0) {
+            throw "install.bat -Offline -NoStart failed (exit $code); see offline.log."
+          }
+          if (-not $out.Contains('Installing from packages\')) {
+            throw 'The installer did not install from packages\; see offline.log.'
+          }
+          if (-not $out.Contains('Setup complete.')) {
+            throw 'The installer did not print "Setup complete."; see offline.log.'
+          }
+          exit 0
