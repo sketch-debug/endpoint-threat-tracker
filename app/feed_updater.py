@@ -53,10 +53,10 @@ def _normalize_lines(text: str, mode: str) -> list[str]:
     # dedupe preserving order
     seen = set()
     out = []
-    for l in lines:
-        if l not in seen:
-            seen.add(l)
-            out.append(l)
+    for entry in lines:
+        if entry not in seen:
+            seen.add(entry)
+            out.append(entry)
     return out
 
 

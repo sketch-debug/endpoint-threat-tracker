@@ -431,6 +431,77 @@ if ($changed) {
     [System.IO.File]::WriteAllLines($EnvFile, $lines)
 }
 
+# .env and the admin account can disagree in two directions, and both end at
+# the same login page. When the installer WRITES a password it must adopt it:
+# bootstrap_admin only *creates* 'admin', so an existing account would keep
+# its old password and the first-login value printed below would be refused -
+# five refusals lock the account for five minutes, and the only reset short of
+# knowing the old password is deleting the database. When the installer does
+# NOT write one, the account must not be overwritten (that would silently
+# undo a password set later on the Users page), so that path only reports a
+# stale .env. Neither ever runs at startup, for the same reason.
+$pwCode = @'
+import os
+import sys
+from pathlib import Path
+
+from app import auth
+from app.config import Settings, load_dotenv
+from app.db import Database
+
+try:
+    load_dotenv(Path('.env'))
+    pw = os.environ.get('TRACKER_ADMIN_PASSWORD', '')
+    db = Database(Settings().db_path)
+    if (sys.argv[1:] or ['adopt'])[0] == 'check':
+        print(auth.env_password_status(db, 'admin', pw))
+    else:
+        print(auth.adopt_env_password(db, 'admin', pw))
+except Exception as exc:
+    print('error:' + str(exc))
+'@
+
+function Invoke-AdminPasswordHelper {
+    param([string]$Mode)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $out = & $VenvPy -c $pwCode $Mode 2>$null
+        $lastLine = $out | Select-Object -Last 1
+        if ($null -ne $lastLine) { return "$lastLine".Trim() }
+        return ''
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+if ($shouldSetAdmin) {
+    $syncResult = Invoke-AdminPasswordHelper 'adopt'
+    if ($syncResult -eq 'synced') {
+        Write-Host 'Existing admin account in the database now uses this password (it had a different one).'
+    } elseif ($syncResult -in @('matched', 'no-admin', 'no-password')) {
+        # account and .env already agree, there is no account yet (bootstrap
+        # will create it with exactly this value), or .env carries no
+        # password at all - nothing to do
+    } else {
+        Write-Host "WARNING: could not reconcile the admin account in the database with the new .env password ($syncResult)." -ForegroundColor Yellow
+        Write-Host '         If sign-in is refused, the account still keeps its previous password.'
+    }
+} elseif ($currentPassword -and $currentPassword -ne 'admin1234') {
+    # An existing, non-default .env password: leave the account alone (it may
+    # be a deliberate change made on the Users page) but do not let the
+    # "password in .env" line below promise something the account will refuse.
+    $pwStatus = Invoke-AdminPasswordHelper 'check'
+    if ($pwStatus -eq 'mismatch') {
+        Write-Host 'WARNING: the admin account in the database does not match TRACKER_ADMIN_PASSWORD in .env.' -ForegroundColor Yellow
+        Write-Host '         The account keeps its password, so the .env value will be refused at the login page.'
+        Write-Host '         Set TRACKER_ADMIN_PASSWORD in .env to the account password, or change it on the Users page.'
+    } elseif ($pwStatus.StartsWith('error:')) {
+        Write-Host "WARNING: could not check the admin account against .env ($pwStatus)." -ForegroundColor Yellow
+    }
+}
+
+
 if ($generatedPassword) {
     Write-Host ''
     Write-Host "Generated admin password: $generatedPassword" -ForegroundColor Yellow

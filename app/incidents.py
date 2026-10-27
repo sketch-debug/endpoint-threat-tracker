@@ -317,8 +317,11 @@ def transition_pc(db: Database, settings: Settings, incident_id: int, pc: str, n
 
 
 def _plus_days(days: int) -> str:
-    from datetime import datetime, timedelta
-    return (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S")
+    from datetime import timedelta
+    from .normalize import iso, utcnow
+    # UTC (Z-suffixed): recheck.py compares this against now_iso(). Naive
+    # local time skewed the 14-day re-check window by the host's UTC offset.
+    return iso(utcnow() + timedelta(days=days))
 
 
 def set_entry_point(db: Database, incident_id: int, entry_point: str, actor: str) -> dict:

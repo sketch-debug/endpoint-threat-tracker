@@ -2,6 +2,8 @@
 in safe batches, with incidents and the dedup ledger never touched."""
 from __future__ import annotations
 
+import os
+import time
 from datetime import timedelta
 
 from app.normalize import iso, utcnow
@@ -79,7 +81,7 @@ class TestRetention:
         run_retention(db, settings)
         again = run_retention(db, settings)
         assert again == {"observations": 0, "signals": 0,
-                         "audit_log": 0, "alerts_log": 0}
+                         "audit_log": 0, "alerts_log": 0, "files": 0}
 
     def test_disabled_config_deletes_nothing(self, db, settings, indicators):
         _seed(db, settings)
@@ -101,3 +103,29 @@ class TestRetention:
         deleted = run_retention(db, settings)
         assert deleted["observations"] == 350
         assert db.one("SELECT COUNT(*) AS n FROM observations")["n"] == 0
+
+    def test_files_retention_reclaims_outputs_but_never_inbox(
+            self, db, settings, indicators):
+        """Aged processed/error/report files go; fresh ones and inbox/ stay."""
+        old = time.time() - 200 * 86400   # > the 90-day files_days default
+        processed_old = settings.processed_dir / "old_export.csv"
+        processed_new = settings.processed_dir / "new_export.csv"
+        error_old = settings.error_dir / "old_error.csv"
+        report_old = settings.reports_dir / "old_report.html"
+        inbox_old = settings.inbox_dir / "old_drop.csv"
+        for path in (processed_old, processed_new, error_old, report_old,
+                     inbox_old):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("x", encoding="utf-8")
+        for path in (processed_old, error_old, report_old, inbox_old):
+            os.utime(path, (old, old))
+
+        deleted = run_retention(db, settings)
+
+        assert deleted["files"] == 3
+        assert not processed_old.exists()
+        assert not error_old.exists()
+        assert not report_old.exists()
+        assert processed_new.exists()
+        assert inbox_old.exists(), \
+            "in-flight inbox drops must never be deleted"

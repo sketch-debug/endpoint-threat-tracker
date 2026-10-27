@@ -97,7 +97,7 @@ class MassFileChange(PCRule):
 
         # sliding window: is there a `minutes` span containing >= need events?
         left, trigger_start = 0, None
-        from datetime import datetime, timedelta as _td
+        from datetime import timedelta as _td
         span = _td(minutes=minutes)
         for right in range(len(events)):
             rt = parse_ts(events[right][0])

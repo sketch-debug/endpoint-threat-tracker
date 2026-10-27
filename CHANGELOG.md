@@ -3,6 +3,44 @@
 All notable changes to the Endpoint Threat Detection & Incident Tracker.
 Format loosely follows Keep a Changelog; versions are semantic.
 
+## [Unreleased]
+
+### Fixed
+
+- Scheduled session purge no longer crashes (`Database.execute()` returns a
+  rowcount, not a cursor); session expiry, re-check deadlines and other
+  stored timestamps are written in UTC (existing rows keep working).
+- Role changes take effect on the next request, and changing a password
+  revokes that user's existing sessions.
+- `SECRET_KEY` from `.env` now signs session cookies (it was ignored).
+- Handler-passed save flashes render again - the Jinja context processor was
+  overwriting them with query params on every page.
+- Unauthenticated `/api/*` requests get `401` JSON instead of a `303` to the
+  HTML login page.
+
+### Security
+
+- New password hashes: PBKDF2-HMAC-SHA256 at 600,000 iterations (OWASP
+  recommendation); existing hashes keep verifying at their stored cost.
+- Login hashes a fixed dummy for unknown users (closes the username timing
+  oracle).
+- Security headers on every response (`nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, CSP), and a plain-HTTP exposure warning
+  whenever `server.host` is non-loopback.
+- Dependency pins cleared of known CVEs (fastapi/starlette, requests,
+  python-multipart, jinja2, pytest).
+
+### Added
+
+- File retention: aged files in `inbox/processed`, `inbox/errors` and
+  `reports/` are reclaimed daily (`retention.files_days`, default 90;
+  in-flight inbox drops are never touched).
+- `/health` payload memoized for 10 s - the dashboard banner was rerunning
+  its db/disk probes on every page view.
+- CI gates: ruff with pinned in-repo rules, pip-audit with a zero-known-CVE
+  policy, a 70% coverage floor, and a scheduler-wiring smoke test; the test
+  job installs `requirements-dev.txt` for the gate tools.
+
 ## [1.1.0] - 2026-10-23
 
 First complete release of the unified architecture (miner functionality is

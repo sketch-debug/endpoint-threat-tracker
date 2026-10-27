@@ -20,7 +20,7 @@ from fastapi import HTTPException, Request
 from .audit import audit
 from .config import Settings
 from .db import Database
-from .normalize import now_iso
+from .normalize import iso, now_iso, utcnow
 
 log = logging.getLogger("tracker.auth")
 
@@ -29,7 +29,9 @@ SESSION_TTL_HOURS = 12
 _ROLES = ("admin", "analyst", "viewer")
 _ROLE_RANK = {"viewer": 1, "analyst": 2, "admin": 3}
 
-_PBKDF2_ITERATIONS = 390_000
+# OWASP's current PBKDF2-HMAC-SHA256 recommendation. Iterations are stored
+# per hash, so hashes minted at the old 390k cost keep verifying.
+_PBKDF2_ITERATIONS = 600_000
 
 
 def hash_password(password: str, *, salt_hex: str | None = None,
@@ -48,6 +50,22 @@ def verify_password(password: str, stored: str) -> bool:
         return hmac.compare_digest(candidate, stored)
     except (ValueError, AttributeError):
         return False
+
+
+_DUMMY_HASH: str | None = None
+
+
+def _dummy_hash() -> str:
+    """Lazily built hash of a random value.
+
+    authenticate() runs one PBKDF2 against it when the username does not
+    exist, so an unknown account costs the same time as a real one and
+    response latency cannot be used to enumerate users.
+    """
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = hash_password(secrets.token_urlsafe(16))
+    return _DUMMY_HASH
 
 
 # ---------------------------------------------------------------- users ----
@@ -71,7 +89,57 @@ def set_password(db: Database, username: str, new_password: str, actor: str) -> 
     with db.tx():
         db.execute("UPDATE users SET password_hash=? WHERE username=?",
                    (hash_password(new_password), username.lower()))
+        # A password change must kill live sessions: an admin resetting a
+        # compromised account would otherwise leave the intruder's cookie
+        # valid for the rest of its 12-hour TTL. Self-changes simply force a
+        # clean re-login.
+        db.execute("DELETE FROM sessions WHERE username=?", (username.lower(),))
         audit(db, actor, "user_password", username.lower(), "password changed")
+
+
+def env_password_status(db: Database, username: str, password: str) -> str:
+    """Does the account accept `password`? Pure check, never writes.
+
+    Returns no-password / short / no-admin / matched / mismatch.
+    """
+    if not password:
+        return "no-password"
+    if len(password) < 8:
+        return "short"
+    row = db.one("SELECT password_hash FROM users WHERE username=?",
+                 (username.lower(),))
+    if row is None:
+        return "no-admin"
+    return "matched" if verify_password(password, row["password_hash"]) \
+        else "mismatch"
+
+
+def adopt_env_password(db: Database, username: str, password: str,
+                       actor: str = "installer") -> str:
+    """Make the password install.ps1 is about to print actually work.
+
+    install.ps1 writes TRACKER_ADMIN_PASSWORD into .env - freshly generated
+    when .env was missing, or -AdminPassword applied over a default - and
+    prints it as the first login. But bootstrap_admin only *creates* the
+    account: on an instance that already has one, the advertised password is
+    then refused, five refusals lock the account for five minutes, and the
+    only reset short of knowing the old password is deleting the database.
+
+    Called by the installer at that moment, never at startup (a startup sync
+    would silently undo a password changed later on the Users page). Returns
+    what happened so the installer can print it:
+      no-password / short / no-admin / matched / synced / error:...
+    """
+    status = env_password_status(db, username, password)
+    if status != "mismatch":
+        return status
+    try:
+        set_password(db, username, password, actor=actor)
+    except Exception as exc:  # defensive: never break the caller over this
+        log.warning("could not adopt the installer password for %s: %s",
+                    username, exc)
+        return f"error:{exc}"
+    return "synced"
 
 
 def set_role(db: Database, username: str, role: str, actor: str) -> None:
@@ -120,7 +188,12 @@ def authenticate(db: Database, username: str, password: str, client_ip: str = ""
         audit(db, "system", "login_blocked", username, f"too many attempts from {client_ip}")
         raise HTTPException(status_code=429, detail="too many login attempts; try later")
     row = db.one("SELECT * FROM users WHERE username=?", (username,))
-    ok = bool(row) and verify_password(password or "", row["password_hash"])
+    if row is None:
+        # burn one PBKDF2 anyway: equal cost for existing and missing users
+        verify_password(password or "", _dummy_hash())
+        audit(db, "system", "login_failed", username, f"ip={client_ip}")
+        return None
+    ok = verify_password(password or "", row["password_hash"])
     if not ok:
         audit(db, "system", "login_failed", username, f"ip={client_ip}")
         return None
@@ -139,9 +212,12 @@ def _sign(secret: str, payload: str) -> str:
 def create_session(db: Database, settings: Settings, username: str, role: str) -> str:
     secret = _session_secret(settings)
     token = secrets.token_urlsafe(32)
-    from datetime import datetime, timedelta
-    expires = (datetime.now() + timedelta(hours=SESSION_TTL_HOURS)
-               ).strftime("%Y-%m-%dT%H:%M:%S")
+    from datetime import timedelta
+    # UTC with the same Z-suffix format resolve_session compares against.
+    # A naive datetime.now() here made the real TTL off by the machine's UTC
+    # offset: hours short on west-of-Greenwich hosts, hours long (failing
+    # open) east of it.
+    expires = iso(utcnow() + timedelta(hours=SESSION_TTL_HOURS))
     with db.tx():
         db.execute("INSERT INTO sessions(token_hash, username, role, created_at, expires_at) "
                    "VALUES(?,?,?,?,?)",
@@ -151,9 +227,13 @@ def create_session(db: Database, settings: Settings, username: str, role: str) -
 
 
 def _session_secret(settings: Settings) -> str:
-    secret = os.environ.get("SESSION_SECRET", "")
-    if secret:
-        return secret
+    # SESSION_SECRET (explicit override) -> SECRET_KEY (.env, generated by
+    # install.ps1 and documented as "signs session cookies" - it used to be
+    # dead config) -> stable per-install file.
+    for env_name in ("SESSION_SECRET", "SECRET_KEY"):
+        secret = os.environ.get(env_name, "")
+        if secret:
+            return secret
     # derive a stable per-install secret kept out of version control
     state_dir = settings.base_dir / "data"
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -176,8 +256,14 @@ def resolve_session(db: Database, settings: Settings, cookie_value: str | None) 
     if not hmac.compare_digest(signature, _sign(_session_secret(settings), token)):
         return None
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    row = db.one("SELECT * FROM sessions WHERE token_hash=? AND expires_at > ?",
-                 (token_hash, now_iso()))
+    # Join users so the role is read fresh: a demoted admin must lose admin
+    # on their next request, not when the cookie finally expires, and a
+    # deleted account's leftover sessions die with it (INNER JOIN).
+    row = db.one(
+        "SELECT s.username AS username, u.role AS role "
+        "FROM sessions s JOIN users u ON u.username = s.username "
+        "WHERE s.token_hash=? AND s.expires_at > ?",
+        (token_hash, now_iso()))
     if row is None:
         return None
     return {"username": row["username"], "role": row["role"]}
@@ -192,8 +278,13 @@ def destroy_session(db: Database, cookie_value: str | None) -> None:
 
 
 def purge_expired(db: Database) -> int:
-    cur = db.execute("DELETE FROM sessions WHERE expires_at <= ?", (now_iso(),))
-    return cur.rowcount
+    """Delete expired session rows; returns how many. Database.execute()
+    returns a rowid int (0 for multi-row deletes), NOT a cursor - reading
+    `.rowcount` off it raised AttributeError on every scheduler run."""
+    with db.tx():
+        db.execute("DELETE FROM sessions WHERE expires_at <= ?", (now_iso(),))
+        row = db.one("SELECT changes() AS n")
+    return int(row["n"]) if row else 0
 
 
 # ------------------------------------------------------- dependencies ----

@@ -182,7 +182,8 @@ def _redir(location: str):
 async def feeds_page(request: Request):
     _require(request, "admin")
     settings = request.app.state.settings
-    import yaml, hashlib
+    import yaml
+    import hashlib
     from pathlib import Path
     feeds_path = settings.config_dir / "feeds.yaml"
     feeds = {}
@@ -196,7 +197,7 @@ async def feeds_page(request: Request):
         if p.is_file():
             try:
                 txt = p.read_text(encoding="utf-8", errors="ignore")
-                rows = len([l for l in txt.splitlines() if l.strip()])
+                rows = len([ln for ln in txt.splitlines() if ln.strip()])
                 h = hashlib.sha256(txt.encode("utf-8")).hexdigest()
             except Exception:
                 pass

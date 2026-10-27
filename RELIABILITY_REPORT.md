@@ -516,7 +516,8 @@ curl -s -o nul -w "login=%{http_code}\n" http://127.0.0.1:8043/login
 ::     powershell -ExecutionPolicy Bypass -File scripts\Set-FirewallRule.ps1 -AllowRemote
 ```
 
-Expected: step 2 → `161 passed`; step 3 → `SMOKE: 11/11 steps passed`;
+Expected: step 2 → every test `passed` (exit 0; the count grows with the
+suite); step 3 → `SMOKE: 11/11 steps passed`;
 step 4 → `STATE : 4 RUNNING`; step 5 → `/health` JSON with `"status": "ok"`;
 step 7 → `BACKUP_OK … verified=integrity:ok` plus a fresh archive after
 `schtasks /Run`; step 9 → `RUNNING` + `ok` within ~1 minute of boot;

@@ -1,0 +1,5 @@
+# CI/dev-only gate tools. Kept out of requirements.txt so the offline
+# packages\ bundle and the installed server do not carry linters/auditors.
+ruff==0.16.10
+pip-audit==2.10.1
+pytest-cov==7.1.0

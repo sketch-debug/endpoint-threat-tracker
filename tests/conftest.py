@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app import health as health_mod            # noqa: E402
 from app.config import Settings          # noqa: E402
 from app.db import Database              # noqa: E402
 from app.indicators import Indicators    # noqa: E402
@@ -48,3 +49,12 @@ def indicators() -> Indicators:
     ind = Indicators(ROOT / "config")
     assert not ind.load_errors, f"shipped indicator files have bad patterns: {ind.load_errors}"
     return ind
+
+
+@pytest.fixture(autouse=True)
+def _clear_health_cache():
+    """health_payload memoizes process-wide: start and end every test cold
+    so one test's health state cannot leak into the next."""
+    health_mod.clear_cache()
+    yield
+    health_mod.clear_cache()

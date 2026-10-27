@@ -123,6 +123,15 @@ def create_app(settings: Settings | None = None,
                db_path: str | None = None) -> FastAPI:
     settings = settings or Settings()
     setup_logging(settings)
+    if settings.host not in ("127.0.0.1", "::1", "localhost"):
+        # off-loopback means login, /health and every session cookie travel
+        # over plain HTTP to that network - say so out loud instead of
+        # binding silently
+        log.warning(
+            "server.host=%s exposes the dashboard (login, /health, cookies) "
+            "over plain HTTP to that network. Restrict it with "
+            "scripts/Set-FirewallRule.ps1 or front it with a TLS proxy.",
+            settings.host)
     db = Database(db_path or settings.db_path)
     indicators = Indicators(settings.config_dir)
     detector = detect.Detector(db, settings, indicators)
@@ -182,10 +191,28 @@ def create_app(settings: Settings | None = None,
             return Response(status_code=204)
         if request.state.user is None and path not in ("/login", "/health") \
                 and not path.startswith("/static"):
+            if path.startswith("/api/"):
+                # JSON callers get 401 JSON, not a 303 to the HTML login page
+                from fastapi.responses import JSONResponse
+                return JSONResponse({"detail": "login required"}, status_code=401)
             return RedirectResponse("/login", status_code=303)
         if request.state.user is not None and path == "/login":
             return RedirectResponse("/", status_code=303)
-        return await call_next(request)
+        response = await call_next(request)
+        # Same-origin only, no framing, no referrer leakage. No template has
+        # inline <script>; users.html's confirm moved to data-confirm so
+        # script-src can stay strict. Styles stay unsafe-inline because
+        # generated incident reports embed a <style> block.
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self'; style-src 'self' "
+            "'unsafe-inline'; img-src 'self' data:; font-src 'self'; "
+            "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+            "form-action 'self'")
+        return response
 
     install_routes(app, settings, db)
     errors_mod.install_error_handlers(app)

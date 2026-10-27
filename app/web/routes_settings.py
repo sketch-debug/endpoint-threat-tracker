@@ -89,8 +89,14 @@ async def save_settings(request: Request,
     request.app.state.settings = new_settings
 
     audit_mod.audit(request.app.state.db, user["username"], "settings_edit", "app_config.yaml", "saved via dashboard")
+    msg = "Settings saved; previous version kept as app_config.yaml.bak."
+    saved_host = str(data["server"]["host"])
+    if saved_host not in ("127.0.0.1", "::1", "localhost"):
+        msg += (f" NOTE: server.host={saved_host} serves login, /health and "
+                "session cookies over plain HTTP to that network - restrict "
+                "it with scripts/Set-FirewallRule.ps1 or use a TLS proxy.")
     return templates.TemplateResponse("settings.html", {
         "request": request,
         "data": data,
-        "msg": "Settings saved; previous version kept as app_config.yaml.bak.",
+        "msg": msg,
     })
