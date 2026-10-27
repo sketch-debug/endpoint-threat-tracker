@@ -59,11 +59,15 @@ smoke_test.bat
 
 ```
 SMOKE: 11/11 steps passed
+
+Next: open the dashboard at http://127.0.0.1:8043/
+      login: admin / the password in .env (TRACKER_ADMIN_PASSWORD)
+      this run stopped the app it started - run start.bat (or the service, if installed)
 ```
 
 Exit code 0. If it prints `FAIL`, the failing step's hint names the fix
 (e.g. "missing from .venv: … run install.bat"). It starts the app itself
-and stops it again when done.
+and stops it again when done — step 4 starts it for good.
 
 ## 4. Install and start the service
 

@@ -32,6 +32,8 @@ if not exist .venv (
 if not exist .env (
   echo Creating .env from .env.example - EDIT IT before production use.
   copy .env.example .env >nul
+  echo   WARNING: this .env still has the default SECRET_KEY and admin password admin1234.
+  echo   Run install.bat to generate random values, or edit .env, before production use.
 )
 
 if not exist .venv\Scripts\python.exe (

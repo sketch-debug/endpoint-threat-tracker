@@ -52,3 +52,15 @@ class TestStartBatGuards:
         text = _start_bat()
         assert "the tracker exited with an error" in text
         assert "tracker.log" in text
+
+    def test_default_env_creation_warns_about_the_default_secrets(self):
+        # start.bat run before install.bat silently copies .env.example, which
+        # ships SECRET_KEY=change-me... and admin1234. The copy must not happen
+        # without saying what it just created.
+        text = _start_bat()
+        assert "copy .env.example .env" in text
+        branch = text.split("if not exist .env (", 1)[1].split("\n)", 1)[0]
+        assert "WARNING" in branch, "no warning when .env defaults are created"
+        assert "SECRET_KEY" in branch
+        assert "admin1234" in branch
+        assert "install.bat" in branch, "must point at the real installer"

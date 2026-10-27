@@ -478,4 +478,16 @@ if ($failed.Count -gt 0) {
     Write-Host ('FAILED: ' + (($failed | ForEach-Object { $_.Name }) -join ', '))
     exit 1
 }
+# All steps passed: the dashboard this run just proved is NOT running unless
+# it was already up (an instance this script started is stopped above), so the
+# output must say how to reach it and log in. A bare PASS count dead-ends the
+# first-run path - the user has to already know to run start.bat.
+Write-Host ''
+Write-Host ('Next: open the dashboard at http://127.0.0.1:{0}/' -f $port)
+Write-Host '      login: admin / the password in .env (TRACKER_ADMIN_PASSWORD)'
+if ($startedByUs) {
+    Write-Host '      this run stopped the app it started - run start.bat (or the service, if installed)'
+} else {
+    Write-Host '      the instance this run tested is still running'
+}
 exit 0

@@ -13,8 +13,14 @@
       <input type="password" name="password" autocomplete="current-password" required>
     </label>
     <button type="submit" class="btn btn-primary">Sign in</button>
+    {% if bootstrap_default %}
     <p class="meta small">Default install: admin / admin1234 &mdash; change it on the
       Users page after first login.</p>
+    {% else %}
+    <p class="meta small">admin / the password install.bat gave you &mdash; stored in
+      <code>.env</code> as TRACKER_ADMIN_PASSWORD. Change it on the Users page
+      after first login.</p>
+    {% endif %}
   </form>
 </div>
 {% endblock %}

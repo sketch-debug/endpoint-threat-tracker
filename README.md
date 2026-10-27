@@ -67,7 +67,16 @@ on the Users page. `install.bat -NoStart` sets up without starting;
 `install.bat -Offline` requires the offline `packages\` folder. `start.bat`
 still works without PowerShell and reuses the same `.venv` and `.env`.
 
-To see it work immediately with generated demo data (no endpoints needed):
+To verify the install end to end (11 checks: role logins, the ingest
+pipeline, detection, an incident, an alert attempt, and a report):
+
+```
+smoke_test.bat
+```
+
+It prints PASS/FAIL per step, stops the instance it started, and finishes
+by telling you how to reach the dashboard. Then, to see it work immediately
+with generated demo data (no endpoints needed):
 
 ```
 .venv\Scripts\python generator\generate_fake_data.py --into-inbox
