@@ -16,7 +16,7 @@
     <a href="/incidents">Incidents</a>
     <a href="/pcs">PCs</a>
     {% if user.role in ('analyst', 'admin') %}<a href="/audit">Audit</a>{% endif %}
-    {% if user.role == 'admin' %}<a href="/config">Config</a><a href="/users">Users</a>{% endif %}
+    {% if user.role == 'admin' %}<a href="/config">Config</a><a href="/settings">Settings</a><a href="/config/feeds">Feeds</a><a href="/users">Users</a>{% endif %}
   </nav>
   <div class="userbox">
     <span>{{ user.username }} <em>({{ user.role }})</em></span>
@@ -27,6 +27,13 @@
   {% endif %}
 </header>
 <main>
+  {% if health and health.status == 'degraded' %}
+  <div class="flash flash-err" role="alert">
+    <strong>System degraded:</strong>
+    {%- for p in health.problems %} {{ p }}{% if not loop.last %};{% endif %}{% endfor -%}
+     —  <a href="/health">details</a>
+  </div>
+  {% endif %}
   {% if msg %}<div class="flash flash-ok">{{ msg }}</div>{% endif %}
   {% if err %}<div class="flash flash-err">{{ err }}</div>{% endif %}
   {% block content %}{% endblock %}

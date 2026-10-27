@@ -73,9 +73,11 @@ jobs:
 
   installer-offline:
     runs-on: windows-latest
-    # shell: powershell (Windows PowerShell 5.1), not pwsh: install.bat launches
-    # powershell.exe, and a pwsh step hands that child a PowerShell 7 PSModulePath
-    # under which 5.1 cannot resolve Microsoft.PowerShell.Utility (Get-FileHash).
+    # Most steps use shell: powershell (5.1). The final step deliberately runs
+    # under pwsh: install.bat launches powershell.exe, and a pwsh prompt hands
+    # that child a PowerShell 7 PSModulePath under which 5.1 cannot resolve
+    # Microsoft.PowerShell.Utility (Get-FileHash). install.bat must sanitize
+    # PSModulePath itself - the final step fails if that fix regresses.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -136,4 +138,32 @@ jobs:
           if (-not $out.Contains('Setup complete.')) {
             throw 'The installer did not print "Setup complete."; see offline.log.'
           }
+          exit 0
+      - name: Offline install also works from a PowerShell 7 prompt
+        shell: pwsh
+        run: |
+          # Regression: run install.bat exactly as an admin at a pwsh prompt would.
+          # Before install.bat cleared the inherited PSModulePath, install.ps1 died
+          # here with "Get-FileHash is not recognized" (exit non-zero).
+          Remove-Item -Recurse -Force .venv -ErrorAction SilentlyContinue
+          # Recreate the venv with the interpreter packages\ was built with (the
+          # one setup-python put on PATH - the same `python -m venv` the Prepare
+          # step used). install.ps1 prefers the py launcher, whose default here is
+          # a NEWER Python than packages\ holds, so letting it choose would build
+          # .venv for the wrong major.minor and this offline install would find no
+          # wheel for pyyaml - a mismatch the build script explicitly warns about.
+          python -m venv .venv
+          if ($LASTEXITCODE -ne 0) { throw 'Recreating .venv for the offline install failed.' }
+          $env:PIP_INDEX_URL = 'http://127.0.0.1:9/simple'
+          & .\install.bat -Offline -NoStart *> pwsh.log
+          $code = $LASTEXITCODE
+          $out = Get-Content -LiteralPath pwsh.log -Raw
+          Write-Host $out
+          if ($code -ne 0) {
+            throw "install.bat failed when launched from a pwsh prompt (exit $code); see pwsh.log."
+          }
+          if (-not $out.Contains('Setup complete.')) {
+            throw 'install.bat from pwsh did not print "Setup complete."; see pwsh.log.'
+          }
+          Write-Host 'install.bat completed from a PowerShell 7 prompt.'
           exit 0

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Settings — Threat Tracker{% endblock %}
+{% block content %}
+<h2>Settings <small>(app_config.yaml)</small></h2>
+{% if msg %}<div class="flash flash-ok">{{ msg }}</div>{% endif %}
+<form method="post" class="card">
+  <h3>Server</h3>
+  <label>Host
+    <input name="server_host" value="{{ data.server.host if data.server else '127.0.0.1' }}" required>
+  </label>
+  <label>Port
+    <input type="number" name="server_port" value="{{ data.server.port if data.server else 8043 }}" required>
+  </label>
+
+  <h3>Ingest</h3>
+  <label>Poll seconds
+    <input type="number" name="poll_seconds" value="{{ data.ingest.poll_seconds if data.ingest else 30 }}" required>
+  </label>
+  <label>Max file bytes
+    <input type="number" name="max_file_bytes" value="{{ data.ingest.max_file_bytes if data.ingest else 52428800 }}" required>
+  </label>
+
+  <h3>Scoring / Windows</h3>
+  <label>Scoring window hours
+    <input type="number" name="scoring_window_hours" value="{{ data.scoring_window_hours | default(24) }}" required>
+  </label>
+
+  <h3>Recheck</h3>
+  <label>Recheck days
+    <input type="number" name="recheck_days" value="{{ data.recheck.days if data.recheck else 14 }}" required>
+  </label>
+
+  <h3>Off-hours</h3>
+  <label>Off-hours ranges, comma separated e.g. 22:00-06:00,12:00-13:00
+    <input name="off_hours" value="{{ ','.join(data.off_hours) if data.off_hours else '' }}">
+  </label>
+
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Save settings</button>
+  </div>
+  <p class="note">Changes are backed up to app_config.yaml.bak and settings reload in memory. Restart may be required for some path changes.</p>
+</form>
+{% endblock %}

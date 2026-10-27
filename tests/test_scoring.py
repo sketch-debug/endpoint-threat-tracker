@@ -82,3 +82,51 @@ class TestSummarizeSignal:
     def test_truncates_long_text(self, settings: Settings):
         long = {"title": "x" * 1000, "detail": "y" * 1000}
         assert len(scoring.summarize_signal(settings, long)) <= 400
+
+
+class TestMetaGates:
+    def test_proc_unsigned_suppressed_alone(self, db: Database, settings: Settings):
+        _add_signal(db, "PC-G", "proc_unsigned", "execution", settings.rule_weights["proc_unsigned"])
+        result = scoring.score_pc(db, settings, "PC-G")
+        # rule suppressed, score 0, no alert
+        assert result["score"] == 0
+        assert result["alert"] is False
+        assert "proc_unsigned" not in result["rules"]
+
+    def test_proc_unsigned_allowed_with_suspicious_path(self, db: Database, settings: Settings):
+        w_u = settings.rule_weights["proc_unsigned"]  # 5
+        w_p = settings.rule_weights["proc_suspicious_path"]  # 10
+        _add_signal(db, "PC-H", "proc_unsigned", "execution", w_u)
+        _add_signal(db, "PC-H", "proc_suspicious_path", "execution", w_p)
+        result = scoring.score_pc(db, settings, "PC-H")
+        assert result["score"] == w_u + w_p
+        assert set(result["rules"]) == {"proc_unsigned", "proc_suspicious_path"}
+
+    def test_proc_unsigned_allowed_with_bad_hash(self, db: Database, settings: Settings):
+        w_u = settings.rule_weights["proc_unsigned"]
+        w_b = settings.rule_weights["proc_bad_hash"]
+        _add_signal(db, "PC-I", "proc_unsigned", "execution", w_u)
+        _add_signal(db, "PC-I", "proc_bad_hash", "execution", w_b)
+        result = scoring.score_pc(db, settings, "PC-I")
+        assert result["score"] == w_u + w_b
+
+    def test_proc_suspicious_path_suppressed_alone(self, db: Database, settings: Settings):
+        _add_signal(db, "PC-J", "proc_suspicious_path", "execution", settings.rule_weights["proc_suspicious_path"])
+        result = scoring.score_pc(db, settings, "PC-J")
+        assert result["score"] == 0
+        assert "proc_suspicious_path" not in result["rules"]
+
+    def test_acct_offhours_login_suppressed_alone(self, db: Database, settings: Settings):
+        _add_signal(db, "PC-K", "acct_offhours_login", "account", settings.rule_weights["acct_offhours_login"])
+        result = scoring.score_pc(db, settings, "PC-K")
+        assert result["score"] == 0
+        assert "acct_offhours_login" not in result["rules"]
+
+    def test_acct_offhours_login_allowed_with_unusual_source(self, db: Database, settings: Settings):
+        w_o = settings.rule_weights["acct_offhours_login"]
+        w_u = settings.rule_weights["acct_unusual_source"]
+        _add_signal(db, "PC-L", "acct_offhours_login", "account", w_o)
+        _add_signal(db, "PC-L", "acct_unusual_source", "account", w_u)
+        result = scoring.score_pc(db, settings, "PC-L")
+        assert result["score"] == w_o + w_u
+        assert "acct_offhours_login" in result["rules"]

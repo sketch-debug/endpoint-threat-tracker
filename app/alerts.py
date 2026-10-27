@@ -20,9 +20,19 @@ from .audit import audit
 from .config import Settings
 from .db import Database
 from .incidents import checklist_for
-from .normalize import now_iso
+from .normalize import now_iso, utcnow as _utcnow  # noqa: F401  (re-exported for flush)
 
 log = logging.getLogger("tracker.alerts")
+
+# Retry policy for email/teams delivery: notify() only QUEUES those rows
+# (status 'pending'); flush_pending_alerts() attempts them with exponential
+# backoff. The ingest cycle therefore never blocks on an unreachable mail
+# server, retries are bounded, and rows are updated in place - never
+# duplicated - so a dead channel can never flood the alert log.
+MAX_ALERT_ATTEMPTS = 10
+_RETRY_BASE_SECONDS = 60          # 1m, 2m, 4m, ... capped at _RETRY_MAX
+_RETRY_MAX_SECONDS = 6 * 3600
+
 
 _KIND_LABELS = {
     "incident_opened": "Incident opened",
@@ -128,21 +138,96 @@ def notify(db: Database, settings: Settings, incident: dict, kind: str,
     for channel in channels:
         if channel == "log":
             status, detail = "logged", "recorded in alerts log"
-        elif channel == "email":
-            status, detail = _send_email(settings, subject, body)
-        elif channel == "teams":
-            status, detail = _send_teams(settings, body)
+        elif channel in ("email", "teams"):
+            # Queue the network send: delivery happens in flush_pending_alerts
+            # on the scheduler, so an unreachable mail/webhook server cannot
+            # block the ingest cycle (15 s timeout per attempt).
+            status, detail = "pending", "queued for delivery with backoff retry"
         else:
             status, detail = "failed", f"unknown channel {channel!r}"
         db.execute(
-            "INSERT INTO alerts_log(ts, incident_id, kind, channel, dedup_key, status, detail) "
-            "VALUES(?,?,?,?,?,?,?)",
-            (now_iso(), incident_id, kind, channel, f"{base_key}:{channel}", status, detail))
-        if status in ("failed", "skipped_unconfigured"):
+            "INSERT INTO alerts_log(ts, incident_id, kind, channel, dedup_key, status, "
+            "detail, attempts, next_retry_at, body, subject) "
+            "VALUES(?,?,?,?,?,?,?,0,'',?,?)",
+            (now_iso(), incident_id, kind, channel, f"{base_key}:{channel}", status,
+             detail, body if channel in ("email", "teams") else "",
+             subject if channel in ("email", "teams") else ""))
+        if status == "pending":
+            final_status = "pending"
+        elif status in ("failed", "skipped_unconfigured") and final_status != "pending":
             final_status = status
         audit(db, actor, "alert_sent" if status in ("sent", "logged") else f"alert_{status}",
               str(incident.get("incident_key")), f"{kind} via {channel}: {status} ({detail})")
     return final_status
+
+
+def flush_pending_alerts(db: Database, settings: Settings, limit: int = 10) -> int:
+    """Attempt queued/failed email+Teams deliveries that are due.
+
+    Called every minute from the scheduler. Updates rows in place (same
+    dedup_key), applies exponential backoff, and stops after
+    MAX_ALERT_ATTEMPTS tries with status 'gave_up'. Returns the number of
+    attempts made. Never raises.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    due = db.query(
+        "SELECT * FROM alerts_log WHERE channel IN ('email','teams') "
+        "AND status IN ('pending','failed') AND attempts < ? "
+        "AND (next_retry_at='' OR next_retry_at <= ?) "
+        "ORDER BY id LIMIT ?",
+        (MAX_ALERT_ATTEMPTS, now_iso(), limit),
+    )
+    made = 0
+    for row in due:
+        made += 1
+        channel = row["channel"]
+        attempts = int(row["attempts"]) + 1
+        try:
+            if not row["body"]:
+                status, detail = "gave_up", "no stored message body for retry"
+            elif channel == "email":
+                status, detail = _send_email(settings, row["subject"], row["body"])
+            else:
+                status, detail = _send_teams(settings, row["body"])
+        except Exception as exc:  # noqa: BLE001 - delivery must never crash the job
+            log.exception("alert flush crashed for row %s", row["id"])
+            status, detail = "failed", f"flush error: {type(exc).__name__}: {exc}"
+        try:
+            if status == "sent":
+                db.execute(
+                    "UPDATE alerts_log SET status='sent', detail=?, attempts=?, "
+                    "next_retry_at='' WHERE id=?",
+                    (detail, attempts, row["id"]))
+            elif status == "skipped_unconfigured":
+                db.execute(
+                    "UPDATE alerts_log SET status='gave_up', detail=?, attempts=? "
+                    "WHERE id=?", (detail, attempts, row["id"]))
+            elif status == "gave_up":
+                db.execute(
+                    "UPDATE alerts_log SET status='gave_up', detail=?, attempts=? "
+                    "WHERE id=?", (detail, attempts, row["id"]))
+            else:
+                if attempts >= MAX_ALERT_ATTEMPTS:
+                    db.execute(
+                        "UPDATE alerts_log SET status='gave_up', detail=?, attempts=? "
+                        "WHERE id=?", (detail, attempts, row["id"]))
+                else:
+                    delay = min(_RETRY_BASE_SECONDS * (2 ** (attempts - 1)),
+                                _RETRY_MAX_SECONDS)
+                    next_at = (datetime.now(timezone.utc) + timedelta(seconds=delay)) \
+                        .strftime("%Y-%m-%dT%H:%M:%SZ")
+                    db.execute(
+                        "UPDATE alerts_log SET status='failed', detail=?, attempts=?, "
+                        "next_retry_at=? WHERE id=?",
+                        (detail, attempts, next_at, row["id"]))
+            audit(db, "system",
+                  "alert_sent" if status == "sent" else "alert_failed",
+                  str(row["id"]),
+                  f"{row['kind']} via {channel} attempt {attempts}: {status} ({detail})")
+        except Exception:  # noqa: BLE001
+            log.exception("could not record alert flush result for row %s", row["id"])
+    return made
 
 
 def recent_alerts(db: Database, incident_id: int | None = None, limit: int = 100) -> list:

@@ -178,6 +178,55 @@ def _redir(location: str):
     return RedirectResponse(location, status_code=303)
 
 
+@router.get("/config/feeds", response_class=HTMLResponse)
+async def feeds_page(request: Request):
+    _require(request, "admin")
+    settings = request.app.state.settings
+    import yaml, hashlib
+    from pathlib import Path
+    feeds_path = settings.config_dir / "feeds.yaml"
+    feeds = {}
+    if feeds_path.is_file():
+        feeds = yaml.safe_load(feeds_path.read_text(encoding="utf-8")) or {}
+    files = []
+    for name, meta in (feeds.get("feeds") or {}).items():
+        p = settings.config_dir / "indicators" / f"{name}.txt"
+        rows = 0
+        h = ""
+        if p.is_file():
+            try:
+                txt = p.read_text(encoding="utf-8", errors="ignore")
+                rows = len([l for l in txt.splitlines() if l.strip()])
+                h = hashlib.sha256(txt.encode("utf-8")).hexdigest()
+            except Exception:
+                pass
+        files.append({"name": name, "url": meta.get("url",""), "type": meta.get("type",""), "rows": rows, "hash": h})
+    marker = Path("data/last_feed_update.txt")
+    last = None
+    if marker.is_file():
+        try:
+            import datetime as dt
+            last = dt.datetime.fromtimestamp(int(marker.read_text().strip())).isoformat(sep=" ")
+        except Exception:
+            pass
+    return templates.TemplateResponse("feeds.html", {"request": request, "files": files, "last_update": last})
+
+
+@router.post("/config/feeds")
+async def feeds_run(request: Request):
+    user = _require(request, "admin")
+    from ..feed_updater import update_all
+    db = request.app.state.db
+    settings = request.app.state.settings
+    try:
+        res = update_all(settings, db, actor=user["username"])
+        msg = f"Feed update completed: {res['updated']} updated, {res['skipped']} skipped, {res['failed']} failed"
+    except Exception as exc:
+        msg = f"Feed update error: {exc}"
+    from urllib.parse import urlencode
+    return _redir(f"/config/feeds?{urlencode({'msg': msg})}")
+
+
 @router.post("/users/{username}/role")
 async def change_role(request: Request, username: str, role: str = Form(...)):
     admin = _require(request, "admin")

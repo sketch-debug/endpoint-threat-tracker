@@ -29,6 +29,9 @@ def settings(tmp_path: Path) -> Settings:
         "reports_dir": str(tmp_path / "reports"),
         "log_dir": str(tmp_path / "logs"),
     })
+    # Tests write a file and scan immediately; disable the production
+    # in-flight guard (stability_seconds) except in the test that sets it.
+    st.app.setdefault("ingest", {})["stability_seconds"] = 0
     st.ensure_dirs()
     return st
 

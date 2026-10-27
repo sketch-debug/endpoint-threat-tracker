@@ -392,6 +392,7 @@ Write-Host ''
 Write-Host 'Setup complete.' -ForegroundColor Green
 Write-Host "Dashboard:  http://127.0.0.1:$port/"
 Write-Host 'First login: admin / the password in .env (TRACKER_ADMIN_PASSWORD)'
+Write-Host 'Verify:     smoke_test.bat   (11 end-to-end checks with fake data)'
 Write-Host 'Demo data:  .venv\Scripts\python generator\generate_fake_data.py --into-inbox'
 Write-Host 'Docs:       README.md and ADMIN_GUIDE.md'
 

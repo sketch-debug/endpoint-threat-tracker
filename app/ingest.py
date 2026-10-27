@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import shutil
+import time
 from pathlib import Path
 
 from .audit import audit
@@ -44,8 +45,13 @@ class Ingestor:
         self.settings = settings
         self.indicators = indicators
         self.detector = detector  # object with .run(set[str]) -> dict
-        self._ip_map: dict[str, str] = dict(indicators.ip_map)
+        self._ip_map: dict[str] = dict(indicators.ip_map)
         self._ip_map_loaded = False
+        # files whose last quarantine move failed (disk full / permissions):
+        # name -> unix time when processing may be retried, so a failing disk
+        # cannot be re-hashed and re-audited on every 30 s scan (log/DB flood)
+        self._move_backoff: dict[str, float] = {}
+        self.move_backoff_seconds = 300.0
 
     # ---- IP -> hostname learning ----------------------------------------
     def _load_ip_map(self) -> None:
@@ -86,9 +92,12 @@ class Ingestor:
                     n += 1
                 dst = target_dir / f"{stem}_{n}{suffix}"
             shutil.move(str(path), str(dst))
+            self._move_backoff.pop(path.name, None)
             return dst
         except OSError as exc:
-            log.warning("could not move %s: %s", path, exc)
+            log.warning("could not move %s: %s (backing off %ss)",
+                        path, exc, int(self.move_backoff_seconds))
+            self._move_backoff[path.name] = time.time() + self.move_backoff_seconds
             return None
 
     def _record_file(self, sha: str, filename: str, size: int, status: str,
@@ -121,6 +130,7 @@ class Ingestor:
     def scan_once(self) -> dict:
         self.settings.ensure_dirs()
         stats = {"files": 0, "ingested": 0, "duplicates": 0, "errors": 0,
+                 "deferred": 0,
                  "observations": 0, "signals": 0, "incidents_touched": 0}
         self._load_ip_map()
 
@@ -140,12 +150,19 @@ class Ingestor:
         return stats
 
     def _process_file(self, path: Path, stats: dict) -> None:
+        # P9: after a failed quarantine move (disk full), leave the file
+        # alone until the backoff expires instead of reprocessing every scan.
+        retry_at = self._move_backoff.get(path.name)
+        if retry_at is not None and time.time() < retry_at:
+            stats["deferred"] += 1
+            return
         stats["files"] += 1
         name = path.name
         try:
-            size = path.stat().st_size
+            st = path.stat()
         except OSError:
             return
+        size = st.st_size
 
         # 1. validation: size + extension
         if size > self.settings.max_file_bytes:
@@ -153,6 +170,14 @@ class Ingestor:
             return
         if path.suffix.lower() not in self.settings.allowed_extensions:
             self._reject(path, size, f"extension not allowed: {path.suffix}", stats)
+            return
+
+        # 2. in-flight guard: a file with a very fresh mtime is probably still
+        # being written. Leave it in the inbox for the next cycle instead of
+        # ingesting a partial file and moving it to processed/ forever.
+        if time.time() - st.st_mtime < self.settings.ingest_stability_seconds:
+            stats["deferred"] += 1
+            log.debug("deferring in-flight file %s (mtime too fresh)", name)
             return
 
         # 2. ledger: skip content we already ingested
@@ -175,6 +200,15 @@ class Ingestor:
             self._record_file(sha, name, size, "error", str(exc))
             audit(self.db, "system", "ingest_error", name, str(exc))
             self._reject(path, size, str(exc), stats, already_recorded=True)
+            return
+        except Exception as exc:  # noqa: BLE001 - a parser bug must not strand
+            # the file in the inbox (retried and re-logged every cycle):
+            # quarantine it with the error in the ledger instead.
+            log.exception("parser crashed on %s", name)
+            detail = f"parser crashed: {type(exc).__name__}: {exc}"
+            self._record_file(sha, name, size, "error", detail)
+            audit(self.db, "system", "ingest_error", name, detail)
+            self._reject(path, size, detail, stats, already_recorded=True)
             return
 
         # 4. normalize PCs, store observations, run detection; one transaction.

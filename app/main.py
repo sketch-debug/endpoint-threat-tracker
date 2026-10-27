@@ -8,14 +8,19 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
+from threading import Thread
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 
-from . import auth, detect, recheck as recheck_mod
+from . import alerts as alerts_mod
+from . import auth, detect, errors as errors_mod, recheck as recheck_mod
+from . import health as health_mod
+from . import retention as retention_mod
 from .config import Settings
 from .db import Database
+from .feed_updater import update_all
 from .indicators import Indicators
 from .ingest import Ingestor
 from .web import install_routes
@@ -25,18 +30,80 @@ log = logging.getLogger("tracker")
 
 def setup_logging(settings: Settings) -> None:
     settings.ensure_dirs()
+    errors_mod.install_record_redaction()
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    redact = errors_mod.RedactSecretsFilter()
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     stream = logging.StreamHandler()
     stream.setFormatter(fmt)
+    stream.addFilter(redact)
     root.addHandler(stream)
     file_handler = RotatingFileHandler(
         settings.log_dir / "tracker.log", maxBytes=5 * 1024 * 1024,
         backupCount=5, encoding="utf-8")
     file_handler.setFormatter(fmt)
+    file_handler.addFilter(redact)
     root.addHandler(file_handler)
     logging.getLogger("apscheduler").setLevel(logging.WARNING)
+
+
+def background_feed_update(settings: Settings, db: Database) -> None:
+    """Run the startup feed update off the request/startup path.
+
+    On an isolated network every feed URL can stall for its request timeout;
+    doing this synchronously in create_app delayed (or, before the server
+    binds, blocked) startup by up to that much per configured feed.
+    """
+    try:
+        import time
+        marker = settings.base_dir / "data" / "last_feed_update.txt"
+        should_update = True
+        if marker.is_file():
+            try:
+                last = int(marker.read_text(encoding="utf-8").strip())
+                days = settings.app.get("feeds_update", {}).get("interval_days", 7)
+                if time.time() - last < days * 86400:
+                    should_update = False
+            except Exception:  # noqa: BLE001 - unreadable marker -> just update
+                pass
+        if not should_update:
+            return
+        log.info("running scheduled feed update…")
+        res = update_all(settings, db, actor="system")
+        log.info("feed update results: %s", res)
+    except Exception as exc:  # noqa: BLE001 - feeds are best-effort at startup
+        log.warning("feed update check failed: %s", exc)
+
+
+def build_scheduler(settings: Settings, *, ingest_fn, recheck_fn, sessions_fn,
+                    alert_flush_fn, retention_fn, heartbeat_fn) -> BackgroundScheduler:
+    """All periodic jobs in one testable place.
+
+    Fixed UTC timezone (a wall-clock/TZ change while running cannot break
+    scheduling) and coalesce+misfire grace on every job so missed runs
+    (sleep/reboot) collapse into one instead of replaying back-to-back.
+    """
+    scheduler = BackgroundScheduler(timezone="UTC")
+    scheduler.add_job(
+        ingest_fn, "interval", seconds=max(5, settings.poll_seconds),
+        id="ingest", max_instances=1, coalesce=True, misfire_grace_time=30)
+    scheduler.add_job(
+        recheck_fn, "interval", hours=1, id="recheck", max_instances=1,
+        coalesce=True, misfire_grace_time=300)
+    scheduler.add_job(
+        sessions_fn, "interval", hours=6, id="sessions", max_instances=1,
+        coalesce=True, misfire_grace_time=300)
+    scheduler.add_job(
+        alert_flush_fn, "interval", seconds=60, id="alert_flush",
+        max_instances=1, coalesce=True, misfire_grace_time=60)
+    scheduler.add_job(
+        retention_fn, "interval", hours=24, id="retention",
+        max_instances=1, coalesce=True, misfire_grace_time=3600)
+    scheduler.add_job(
+        heartbeat_fn, "interval", minutes=15, id="heartbeat",
+        max_instances=1, coalesce=True, misfire_grace_time=120)
+    return scheduler
 
 
 def bootstrap_admin(db: Database, settings: Settings) -> None:
@@ -61,20 +128,32 @@ def create_app(settings: Settings | None = None,
     detector = detect.Detector(db, settings, indicators)
     ingestor = Ingestor(db, settings, indicators, detector=detector)
     bootstrap_admin(db, settings)
+    # Startup feed update runs in background_feed_update() from the lifespan
+    # below - never inline here, where unreachable feed URLs would delay
+    # (or block) app creation on an isolated network.
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        scheduler = BackgroundScheduler(timezone=None)
-        scheduler.add_job(
-            lambda: detect.run_cycle(app.state.ingestor, app.state.detector),
-            "interval", seconds=max(5, settings.poll_seconds),
-            id="ingest", max_instances=1, coalesce=True)
-        scheduler.add_job(
-            lambda: recheck_mod.run_recheck_sweep(app.state.db, app.state.settings),
-            "interval", hours=1, id="recheck", max_instances=1)
-        scheduler.add_job(
-            lambda: auth.purge_expired(app.state.db),
-            "interval", hours=6, id="sessions", max_instances=1)
+        # feeds first (background thread): on a no-internet server each URL
+        # can stall its request timeout without delaying serving
+        feed_thread = Thread(
+            target=background_feed_update,
+            args=(settings, app.state.db),
+            daemon=True, name="feed-update")
+        feed_thread.start()
+        scheduler = build_scheduler(
+            settings,
+            ingest_fn=lambda: detect.run_cycle(app.state.ingestor, app.state.detector),
+            recheck_fn=lambda: recheck_mod.run_recheck_sweep(app.state.db,
+                                                             app.state.settings),
+            sessions_fn=lambda: auth.purge_expired(app.state.db),
+            alert_flush_fn=lambda: alerts_mod.flush_pending_alerts(
+                app.state.db, app.state.settings),
+            retention_fn=lambda: retention_mod.run_retention(
+                app.state.db, app.state.settings),
+            heartbeat_fn=lambda: health_mod.run_heartbeat(
+                app.state.db, app.state.settings),
+        )
         scheduler.start()
         log.info("scheduler started (ingest every %ss, recheck hourly)",
                  settings.poll_seconds)
@@ -101,7 +180,7 @@ def create_app(settings: Settings | None = None,
         if path == "/favicon.ico":
             from fastapi.responses import Response
             return Response(status_code=204)
-        if request.state.user is None and path not in ("/login",) \
+        if request.state.user is None and path not in ("/login", "/health") \
                 and not path.startswith("/static"):
             return RedirectResponse("/login", status_code=303)
         if request.state.user is not None and path == "/login":
@@ -109,6 +188,7 @@ def create_app(settings: Settings | None = None,
         return await call_next(request)
 
     install_routes(app, settings, db)
+    errors_mod.install_error_handlers(app)
     return app
 
 

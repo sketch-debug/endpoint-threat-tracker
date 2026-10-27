@@ -26,8 +26,15 @@ if (-not (Get-Command $nssmExe -ErrorAction SilentlyContinue)) {
 $logs = Join-Path $root 'logs'
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 
+# Best-effort cleanup. On a fresh machine neither service exists and nssm
+# reports that on stderr; under $ErrorActionPreference='Stop' a redirected
+# native stderr becomes a terminating NativeCommandError, which used to abort
+# the whole script here on first install. Relax EAP across these two only.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 & $nssmExe stop $ServiceName 2>$null | Out-Null
 & $nssmExe remove $ServiceName confirm 2>$null | Out-Null
+$ErrorActionPreference = $prevEap
 
 & $nssmExe install $ServiceName $Python "-m" "app.main"
 & $nssmExe set $ServiceName AppDirectory $root
@@ -36,6 +43,12 @@ New-Item -ItemType Directory -Force -Path $logs | Out-Null
 & $nssmExe set $ServiceName AppStderr (Join-Path $logs 'service.err.log')
 & $nssmExe set $ServiceName AppRotateFiles 1
 & $nssmExe set $ServiceName AppRotateBytes 10485760
+# Reliability: if the app exits or crashes, restart it automatically (set
+# explicitly rather than relying on NSSM's version-dependent default) with a
+# 10 s delay so a crash loop cannot spin. SERVICE_AUTO_START (above) covers
+# power loss; this covers process death while the server is up.
+& $nssmExe set $ServiceName AppExit Default Restart
+& $nssmExe set $ServiceName AppRestartDelay 10000
 
 Write-Host "Service '$ServiceName' installed."
 Write-Host "Start it with:  Start-Service $ServiceName"

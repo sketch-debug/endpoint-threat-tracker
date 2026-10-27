@@ -4,7 +4,10 @@ FAKE DATA ONLY. Generates seven days of exported logs and inventories for a
 small office fleet, including a simulated multi-PC cryptomining incident and
 a ransomware incident, so the whole workflow (detect -> correlate -> incident
 -> workflow -> re-check -> report) can be demoed end to end without any real
-systems. Everything is deterministic for a given --seed.
+systems. A noisy-but-benign PC (PC-MKT-06) adds a lone unsigned process, a
+lone off-hours login and a new-software persistence trio; it only crosses the
+alert threshold when the meta gates are disabled, so gate tuning is
+measurable. Everything is deterministic for a given --seed.
 
 Usage:
     python generator/generate_fake_data.py                 # write into samples/
@@ -24,7 +27,7 @@ import csv
 import json
 import random
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,10 +44,14 @@ FLEET = {
     "192.168.10.32": "PC-FIN-01",    # clean (one weak signal: office->powershell)
     "192.168.10.33": "PC-DEV-02",    # clean
     "192.168.10.34": "PC-EXEC-05",   # clean
+    "192.168.10.35": "PC-MKT-06",    # noisy but benign (meta-gate demo)
 }
 MINER_PCS = ["192.168.10.21", "192.168.10.22", "192.168.10.23"]
 CLEAN_PCS = ["192.168.10.31", "192.168.10.32", "192.168.10.33", "192.168.10.34"]
 RANSOM_PC = "192.168.10.24"
+NOISY_PC = "192.168.10.35"
+NOISY_TOOL = r"C:\Program Files\Acme\AcmeSync.exe"
+NOISY_HASH = "b" * 64               # deliberately NOT in bad_hashes.txt
 
 # values matched by config/indicators (all fake)
 POOL = "xmr.pool.fake-example.test"
@@ -81,6 +88,18 @@ def ts(rng: random.Random, day: int, hh: int, mm: int | None = None,
                                   second=ss if ss is not None
                                   else rng.randrange(0, 60), microsecond=0)
     return (base - timedelta(days=day)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def utc_ts(day: int, hh: int, mm: int = 0, ss: int = 0) -> str:
+    """UTC ISO timestamp for `day` days ago at local hh:mm:ss.
+
+    The rest of the generator writes local wall-clock strings without an
+    offset (the parsers treat those as UTC). The off-hours scenario converts
+    explicitly so 02:10 is off-hours in local time on any host timezone.
+    """
+    local = datetime.now().replace(
+        hour=hh, minute=mm, second=ss, microsecond=0) - timedelta(days=day)
+    return local.astimezone().astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def write_csv(path: Path, header: list[str], rows: list[dict]) -> None:
@@ -266,6 +285,24 @@ def event_rows(rng: random.Random, day: int) -> list[dict]:
                 rows.append(ev(4624, FLEET[ip], rng.randrange(8, 10), {
                     "TargetUserName": rng.choice(USERS[:4]),
                     "IpAddress": ip, "LogonType": "3"}))
+
+    # Noisy-but-benign PC: known daytime source first, then one lone
+    # off-hours login with no burst and no unfamiliar source. With the meta
+    # gates on, acct_offhours_login does not score; with them off it adds 5.
+    noisy_host = FLEET[NOISY_PC]
+    if day in (1, 2):
+        for minute in (0, 30):
+            row = ev(4624, noisy_host, 10, {
+                "TargetUserName": "mkt_svc", "IpAddress": "192.168.10.31",
+                "LogonType": "3"})
+            row["timestamp"] = utc_ts(day, 10, minute)
+            rows.append(row)
+    if day == 0:
+        row = ev(4624, noisy_host, 2, {
+            "TargetUserName": "mkt_svc", "IpAddress": "192.168.10.31",
+            "LogonType": "3"})
+        row["timestamp"] = utc_ts(day, 2, 10)
+        rows.append(row)
     return rows
 
 
@@ -310,6 +347,15 @@ def process_inv_rows(rng: random.Random, ip: str, day: int, infected: bool,
             "user": "alice", "cpu_percent": rng.randint(3, 15),
             "memory_mb": rng.randint(200, 500), "signature_status": "Valid",
             "signer": "Microsoft Windows", "sha256": "e" * 64})
+    if ip == NOISY_PC and day == 0:
+        # Signed-software install left an unsigned vendor helper running from
+        # a normal path: proc_unsigned alone, no suspicious path / bad hash.
+        rows.append({
+            "timestamp": ts(rng, day, hour), "hostname": host, "ip": ip,
+            "pid": 3310, "ppid": 900, "name": "AcmeSync.exe",
+            "path": NOISY_TOOL, "user": "mkt_svc", "cpu_percent": 2,
+            "memory_mb": 90, "signature_status": "NotSigned", "signer": "",
+            "sha256": NOISY_HASH})
     return rows
 
 
@@ -325,15 +371,25 @@ def tasks_inv_rows(rng: random.Random, ip: str, day: int, infected: bool) -> lis
                      "task_name": MINER_TASK, "task_path": "\\",
                      "status": "Ready", "command": MINER_PATH,
                      "arguments": "-o stratum+tcp://pool:4444", "user": "SYSTEM"})
+    if ip == NOISY_PC and day == 0:
+        rows.append({"timestamp": ts(rng, day, 9), "hostname": host,
+                     "task_name": r"\AcmeSyncUpdate", "task_path": "\\",
+                     "status": "Ready", "command": NOISY_TOOL,
+                     "arguments": "--silent", "user": "SYSTEM"})
     return rows
 
 
 def persistence_inv_rows(rng: random.Random, ip: str, day: int,
                          infected: bool) -> list[dict]:
     host = FLEET[ip]
+    # The noisy PC uses a different benign autostart so its correlation keys
+    # cannot overlap the miner incident's OneDrive command line.
+    base_item = "Dropbox" if ip == NOISY_PC else "OneDrive"
+    base_cmd = (r"C:\Program Files\Dropbox\Dropbox.exe" if ip == NOISY_PC
+                else r"C:\Program Files\Microsoft OneDrive\OneDrive.exe")
     rows = [{"timestamp": ts(rng, day, 9), "hostname": host, "category": "run_key",
-             "item_name": "OneDrive", "details": "sync client",
-             "command": r"C:\Program Files\Microsoft OneDrive\OneDrive.exe"}]
+             "item_name": base_item, "details": "sync client",
+             "command": base_cmd}]
     if infected:
         rows += [
             {"timestamp": ts(rng, day, 9), "hostname": host, "category": "service",
@@ -345,6 +401,20 @@ def persistence_inv_rows(rng: random.Random, ip: str, day: int,
             {"timestamp": ts(rng, day, 9), "hostname": host,
              "category": "scheduled_task", "item_name": MINER_TASK,
              "details": "runs at logon and daily 02:00", "command": MINER_PATH},
+        ]
+    if ip == NOISY_PC and day == 0:
+        # Benign installer footprint: three new-but-harmless persistence items
+        # (10 + 10 + 10); combined with the two gated signals it reaches 40.
+        rows += [
+            {"timestamp": ts(rng, day, 9), "hostname": host, "category": "run_key",
+             "item_name": "AcmeSync", "details": "vendor autostart",
+             "command": NOISY_TOOL},
+            {"timestamp": ts(rng, day, 9), "hostname": host, "category": "service",
+             "item_name": "AcmeSyncSvc", "details": "auto start, LocalSystem",
+             "command": NOISY_TOOL},
+            {"timestamp": ts(rng, day, 9), "hostname": host,
+             "category": "scheduled_task", "item_name": r"\AcmeSyncUpdate",
+             "details": "daily update check", "command": NOISY_TOOL},
         ]
     return rows
 

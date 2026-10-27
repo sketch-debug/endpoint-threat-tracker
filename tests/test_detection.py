@@ -176,3 +176,46 @@ class TestIdempotency:
         second = det.run({"PC-TEST"})
         assert first["signals"] >= 1
         assert second["signals"] == 0, "re-running detection must be a no-op"
+
+
+class TestRowCapKeepsNewestEvidence:
+    """P20: the 50 000-row cap per PC must exclude the OLDEST rows, never the newest."""
+
+    @staticmethod
+    def _fill(db: Database, pc: str, n: int) -> None:
+        rows = []
+        for i in range(n):
+            ts = f"2020-01-{(i % 28) + 1:02d}T{(i // 3600) % 24:02d}:" \
+                 f"{(i // 60) % 60:02d}:{i % 60:02d}"
+            rec = {"record_type": "dns_query", "pc": pc, "ts": ts,
+                   "client_ip": "10.9.9.9", "domain": "www.example.test"}
+            rows.append(("dns_query", pc, ts, f"filler|{pc}|{i}",
+                         json.dumps(rec, sort_keys=True)))
+        db.executemany(
+            "INSERT INTO observations(record_type, pc, ts, dedup_key, payload) "
+            "VALUES(?,?,?,?,?)", rows)
+
+    def test_cap_returns_exactly_the_newest_window_chronologically(self, db, settings,
+                                                                   indicators):
+        self._fill(db, "PC-HEAVY", 50_000)
+        _obs(db, "dns_query", {"pc": "PC-HEAVY", "client_ip": "192.168.10.21",
+                                "domain": "www.today.test"})
+        det = _detector(db, settings, indicators)
+        records = det._records_for("PC-HEAVY")
+        assert len(records) == 50_000, "cap must still hold"
+        assert records[-1]["domain"] == "www.today.test", (
+            "the newest observation fell outside the cap")
+        assert records[-2]["ts"] <= records[-1]["ts"], (
+            "records must still be handed to rules in chronological order")
+
+    def test_detection_fires_on_recent_evidence_at_cap(self, db, settings, indicators):
+        self._fill(db, "PC-HEAVY", 50_000)
+        pool = next(iter(indicators.pool_domains))
+        _obs(db, "dns_query", {"pc": "PC-HEAVY", "client_ip": "192.168.10.23",
+                               "domain": f"eu1.{pool}"})
+        det = _detector(db, settings, indicators)
+        result = det.run({"PC-HEAVY"})
+        assert result["signals"] >= 1
+        assert db.one("SELECT 1 FROM signals WHERE rule_id='dns_mining_pool' "
+                      "AND pc='PC-HEAVY'") is not None, (
+            "today's mining-pool lookup was never evaluated")

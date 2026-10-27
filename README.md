@@ -67,7 +67,16 @@ on the Users page. `install.bat -NoStart` sets up without starting;
 `install.bat -Offline` requires the offline `packages\` folder. `start.bat`
 still works without PowerShell and reuses the same `.venv` and `.env`.
 
-To see it work immediately with generated demo data (no endpoints needed):
+To verify the install end to end (11 checks: role logins, the ingest
+pipeline, detection, an incident, an alert attempt, and a report):
+
+```
+smoke_test.bat
+```
+
+It prints PASS/FAIL per step, stops the instance it started, and finishes
+by telling you how to reach the dashboard. Then, to see it work immediately
+with generated demo data (no endpoints needed):
 
 ```
 .venv\Scripts\python generator\generate_fake_data.py --into-inbox
@@ -94,7 +103,9 @@ Start-Service EndpointThreatTracker
 ```
 
 Uses [NSSM](https://nssm.cc) to run the tracker as a service with rotated
-logs in `logs\`. `scripts\Uninstall-Service.ps1` removes it (keeps data).
+logs in `logs\`. The service starts automatically at boot and restarts the
+app if it crashes (10 s delay), so it recovers from crashes and reboots
+without an admin. `scripts\Uninstall-Service.ps1` removes it (keeps data).
 `scripts\Set-FirewallRule.ps1` documents the only firewall change this tool
 ever suggests — and only with an explicit `-AllowRemote` switch; the default
 bind is `127.0.0.1` and needs no rule at all.

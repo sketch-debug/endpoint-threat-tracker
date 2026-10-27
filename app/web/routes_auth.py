@@ -1,6 +1,8 @@
 """Login / logout routes."""
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -10,9 +12,29 @@ from . import templates
 router = APIRouter()
 
 
+def _login_context(request: Request, error: str | None = None) -> dict:
+    """Template context for login.html, shared by every render of it.
+
+    install.ps1 writes a chosen or generated password into .env, so on almost
+    every real install "admin / admin1234" is WRONG: a new admin who trusts it
+    fails login, and five failures lock the real admin out for five minutes.
+    Advertise the default only while it is genuinely active (the bootstrap in
+    app.main reads the same variable); otherwise point at where the password
+    actually lives.
+    """
+    ctx = {
+        "request": request,
+        "bootstrap_default":
+            os.environ.get("TRACKER_ADMIN_PASSWORD", "admin1234") == "admin1234",
+    }
+    if error is not None:
+        ctx["error"] = error
+    return ctx
+
+
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("login.html", _login_context(request))
 
 
 @router.post("/login")
@@ -24,15 +46,15 @@ async def login(request: Request, username: str = Form(...), password: str = For
         user = auth.authenticate(db, username, password, client_ip)
     except Exception as exc:  # HTTPException(429) from rate limiter
         status = getattr(exc, "status_code", 500)
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": str(getattr(exc, "detail", exc)),
-        }, status_code=status)
+        return templates.TemplateResponse(
+            "login.html",
+            _login_context(request, str(getattr(exc, "detail", exc))),
+            status_code=status)
     if user is None:
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "error": "Invalid username or password.",
-        }, status_code=401)
+        return templates.TemplateResponse(
+            "login.html",
+            _login_context(request, "Invalid username or password."),
+            status_code=401)
     token = auth.create_session(db, settings, user["username"], user["role"])
     response = RedirectResponse("/", status_code=303)
     response.set_cookie(

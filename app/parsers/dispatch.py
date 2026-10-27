@@ -71,6 +71,15 @@ def parse_file(path: Path, settings: Settings) -> list[dict]:
         raise ParseError("CSV has a header but no data rows")
 
     kind = _detect(name, header)
+    records = _run_parser(kind, rows, settings)
+    if not records:
+        # Known header but nothing usable (wrong/unparseable column values).
+        # Quarantine it as an error instead of "ingesting" zero records.
+        raise ParseError(f"{kind} file produced no valid records")
+    return records
+
+
+def _run_parser(kind: str, rows: list[dict], settings: Settings) -> list[dict]:
     if kind == "dns_technitium":
         return dns.parse(rows, settings, "technitium")
     if kind == "dns_generic":
