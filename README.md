@@ -194,7 +194,8 @@ reports/        generated HTML incident reports
 
 * Secrets only in `.env` (never committed; `.env.example` is the template).
 * Session cookies are HMAC-signed; passwords are PBKDF2-SHA256 (390k
-  iterations, unique salt); login is rate-limited (5 attempts / 5 min).
+  iterations, unique salt); login is rate-limited (5 failed attempts / 5 min
+  per username and per client IP).
 * Roles: admin (config, indicators, users), analyst (work incidents),
   viewer (read-only). Every mutating route is role-checked and audited.
 * The tool stores **metadata only** — no file contents, no keystrokes, no

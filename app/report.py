@@ -67,6 +67,14 @@ def build_report(db: Database, settings: Settings, incident_id: int) -> str:
         f"<td>{_e(s['rule_id'])}</td><td>{_e(s['category'])}</td>"
         f"<td>{_e(scoring.summarize_signal(settings, s))}</td></tr>"
         for s in signals[:300]) or "<tr><td colspan='6'>(none)</td></tr>"
+    if len(signals) > 300:
+        # the heading above prints the real count; without this row the
+        # table silently stops at 300 and reads as "these are all the
+        # signals we have"
+        signal_rows += (
+            f"<tr><td colspan='6'>&hellip; showing first 300 of "
+            f"{len(signals)} signals ({len(signals) - 300} stored but not "
+            f"printed here)</td></tr>")
     checklist_rows = "".join(
         f"<tr><td>{'&#9989;' if c['done'] else '&#9744;'}</td><td>{_e(c['item'])}</td>"
         f"<td>{_fmt_ts(c['ts'])}</td></tr>"

@@ -186,32 +186,27 @@ def create_app(settings: Settings | None = None,
         cookie = request.cookies.get(auth.SESSION_COOKIE)
         request.state.user = auth.resolve_session(db, settings, cookie)
         path = request.url.path
+        # Every branch below must fall through to apply_security_headers:
+        # an early return meant 401/303/204 responses shipped with no
+        # headers, and the 500 page (handled outside this middleware) with
+        # none either - see install_error_handlers in errors.py.
         if path == "/favicon.ico":
             from fastapi.responses import Response
-            return Response(status_code=204)
-        if request.state.user is None and path not in ("/login", "/health") \
+            response = Response(status_code=204)
+        elif request.state.user is None and path not in ("/login", "/health") \
                 and not path.startswith("/static"):
             if path.startswith("/api/"):
                 # JSON callers get 401 JSON, not a 303 to the HTML login page
                 from fastapi.responses import JSONResponse
-                return JSONResponse({"detail": "login required"}, status_code=401)
-            return RedirectResponse("/login", status_code=303)
-        if request.state.user is not None and path == "/login":
-            return RedirectResponse("/", status_code=303)
-        response = await call_next(request)
-        # Same-origin only, no framing, no referrer leakage. No template has
-        # inline <script>; users.html's confirm moved to data-confirm so
-        # script-src can stay strict. Styles stay unsafe-inline because
-        # generated incident reports embed a <style> block.
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "no-referrer")
-        response.headers.setdefault(
-            "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self' "
-            "'unsafe-inline'; img-src 'self' data:; font-src 'self'; "
-            "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
-            "form-action 'self'")
+                response = JSONResponse({"detail": "login required"},
+                                        status_code=401)
+            else:
+                response = RedirectResponse("/login", status_code=303)
+        elif request.state.user is not None and path == "/login":
+            response = RedirectResponse("/", status_code=303)
+        else:
+            response = await call_next(request)
+        errors_mod.apply_security_headers(response)
         return response
 
     install_routes(app, settings, db)

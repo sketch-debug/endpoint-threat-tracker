@@ -190,6 +190,36 @@ def test_security_headers_on_authenticated_pages(logged_in_client) -> None:
     assert "script-src 'self'" in resp.headers["Content-Security-Policy"]
 
 
+def test_security_headers_on_401_303_and_500(settings, monkeypatch) -> None:
+    """401/303 come from the middleware's early returns and the 500 from
+    the error handler, which runs OUTSIDE that middleware - all three used
+    to ship with no security headers at all."""
+    monkeypatch.setenv("TRACKER_ADMIN_PASSWORD", "TestAdmin123!")
+    app = main_mod.create_app(settings)
+
+    @app.get("/boom")
+    async def boom():
+        raise RuntimeError("boom")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    redirect = client.get("/", follow_redirects=False)   # anonymous 303
+    unauthorized = client.get("/api/status")             # anonymous 401
+    client.post("/login", data={"username": "admin",
+                                "password": "TestAdmin123!"})
+    failed = client.get("/boom", headers={"Accept": "text/html"})  # 500
+
+    assert (redirect.status_code, unauthorized.status_code,
+            failed.status_code) == (303, 401, 500)
+    for what, resp in (("303", redirect), ("401", unauthorized),
+                       ("500", failed)):
+        assert resp.headers["X-Content-Type-Options"] == "nosniff", what
+        assert resp.headers["X-Frame-Options"] == "DENY", what
+        assert resp.headers["Referrer-Policy"] == "no-referrer", what
+        csp = resp.headers["Content-Security-Policy"]
+        assert "script-src 'self'" in csp, what
+        assert "frame-ancestors 'none'" in csp, what
+
+
 def test_no_template_ships_inline_script() -> None:
     """CSP script-src 'self' only holds if nothing needs inline JS."""
     from pathlib import Path

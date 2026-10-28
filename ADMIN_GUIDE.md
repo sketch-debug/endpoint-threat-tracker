@@ -130,7 +130,9 @@ First startup with an empty user table creates `admin` with
 `TRACKER_ADMIN_PASSWORD` from `.env` (default `admin1234`). **Change it in
 `.env` before first start on any shared machine**, then change the password
 again after first login. Sessions last 12 hours; login is limited to 5
-attempts per 5 minutes per username.
+failed attempts per 5 minutes, counted per username AND per client IP -
+whichever limit is reached first blocks further attempts for that username
+or from that address (one host spraying many usernames trips it too).
 
 LDAP/AD integration is intentionally not bundled (no external deps); the
 user store is a small interface in `app/auth.py` if you need it later.

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import auth
@@ -38,18 +38,27 @@ async def login_page(request: Request):
 
 
 @router.post("/login")
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+# Deliberately sync: authenticate() runs PBKDF2 (~0.4s at 600k iterations)
+# and hits SQLite. As an async def it would block the event loop for the
+# whole computation - /health and the dashboard would stall behind every
+# login attempt - so FastAPI runs it in its threadpool instead.
+def login(request: Request, username: str = Form(...), password: str = Form(...)):
     db = request.app.state.db
     settings = request.app.state.settings
     client_ip = request.client.host if request.client else ""
     try:
         user = auth.authenticate(db, username, password, client_ip)
-    except Exception as exc:  # HTTPException(429) from rate limiter
-        status = getattr(exc, "status_code", 500)
+    except HTTPException as exc:
+        # The rate limiter's 429 is the only expected HTTPException; render
+        # the login page with its (safe, operator-written) detail. Anything
+        # else - a DB failure, a config error - must propagate to the global
+        # handler: str(exc) here echoed internal exception text (file paths,
+        # SQL state) back to an anonymous client AND never logged it, so the
+        # failure left no trace in tracker.log.
         return templates.TemplateResponse(
             "login.html",
-            _login_context(request, str(getattr(exc, "detail", exc))),
-            status_code=status)
+            _login_context(request, str(exc.detail)),
+            status_code=exc.status_code)
     if user is None:
         return templates.TemplateResponse(
             "login.html",

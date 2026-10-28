@@ -110,6 +110,21 @@ class TestUsers:
             auth.authenticate(db, "carol", "password123")
         assert exc.value.status_code == 429
 
+    def test_rate_limit_keys_on_client_ip_too(self, db: Database, settings: Settings):
+        """One host spraying many usernames must trip the limiter even
+        though no single username reaches the per-account limit."""
+        auth.create_user(db, "dave", "password123", "viewer")
+        for i in range(5):
+            auth.authenticate(db, f"nosuchuser{i}", "wrong",
+                              client_ip="10.9.9.9")
+        # different username, same host: the per-IP count blocks it
+        with pytest.raises(HTTPException) as exc:
+            auth.authenticate(db, "dave", "password123", client_ip="10.9.9.9")
+        assert exc.value.status_code == 429
+        # a different host is unaffected - the limit is not global
+        assert auth.authenticate(db, "dave", "password123",
+                                 client_ip="10.9.9.8") is not None
+
 
 class TestSessions:
     def test_roundtrip(self, db: Database, settings: Settings):

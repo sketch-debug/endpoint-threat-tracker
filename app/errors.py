@@ -20,10 +20,50 @@ import secrets as _secrets
 log = logging.getLogger("tracker.errors")
 
 _SECRET_KEY_RE = re.compile(r"SECRET|PASSWORD|PASSPHRASE|TOKEN|WEBHOOK", re.I)
+# Key names as they appear inside JSON, SQL, dict reprs and headers:
+# `"password": x`, 'password_hash': x, session_secret=x, Api-Key: x.
+# The optional quote between key and separator is what the old pattern
+# lacked - without it every quoted key slipped past - and names like
+# access_token never matched because `_` sits where a word boundary was
+# required.
+_KV_KEYS = (
+    "password_hash|password|passwd|passphrase|"
+    "session_secret|client_secret|secret_key|secret|"
+    "access_token|refresh_token|id_token|auth_token|token|"
+    "api[_-]?key|webhook_url|webhook|authorization"
+)
 _KV_RE = re.compile(
-    r"(?i)\b(password|passwd|secret|token|api_key|apikey|passphrase|"
-    r"webhook_url|session_secret)\s*[=:]\s*([^\s,;)'\"\]]+)")
+    rf"""(?i)(?P<key>{_KV_KEYS})(?P<q>['"]?)\s*(?P<sep>[=:])\s*"""
+    rf"""(?P<vq>[\x27\x22]?)(?P<val>[^\s,;\x29\x27\x22\x5d]+)(?P<eq>[\x27\x22]?)""")
+# `Authorization: Bearer eyJ...` carries no key=value pair of its own, so
+# it needs its own pattern; _scrub runs this first, then _KV_RE redacts the
+# `Authorization:` value as well.
+_BEARER_RE = re.compile(r"""(?i)\bbearer\s+(?P<tok>[^\s,;\x29\x27\x22\x5d]+)""")
 REDACTED = "***REDACTED***"
+
+# Applied to every response class: normal pages via the session middleware
+# in main.py, error responses via install_error_handlers (which runs
+# outside that middleware).
+# CSP rationale: same-origin only, no framing, no referrer leakage. No
+# template ships inline <script> (users.html's confirm uses data-confirm)
+# so script-src can stay strict; style-src stays unsafe-inline because
+# generated incident reports embed a <style> block.
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self' "
+        "'unsafe-inline'; img-src 'self' data:; font-src 'self'; "
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+        "form-action 'self'"),
+}
+
+
+def apply_security_headers(response) -> None:
+    """setdefault, so a route that sets a stricter value keeps it."""
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
 
 
 def _secret_values() -> list[str]:
@@ -44,7 +84,8 @@ class RedactSecretsFilter(logging.Filter):
         for value in _secret_values():
             if value in redacted:
                 redacted = redacted.replace(value, REDACTED)
-        return _KV_RE.sub(lambda m: f"{m.group(1)}={REDACTED}", redacted)
+        redacted = _BEARER_RE.sub(f"Bearer {REDACTED}", redacted)
+        return _KV_RE.sub(lambda m: f"{m.group('key')}={REDACTED}", redacted)
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
@@ -120,8 +161,14 @@ def install_error_handlers(app) -> None:
                 "<p>Check <code>logs\\tracker.log</code> (and "
                 "<code>logs\\service.err.log</code> when running as a "
                 "service), then reload the page.</p>")
-            return HTMLResponse(body, status_code=500)
-        return PlainTextResponse(detail, status_code=500)
+            response = HTMLResponse(body, status_code=500)
+        else:
+            response = PlainTextResponse(detail, status_code=500)
+        # ServerErrorMiddleware sits OUTSIDE the session middleware, so this
+        # response never passes through it - without this, every 500 page
+        # (and the plain-text 500) shipped with no security headers at all.
+        apply_security_headers(response)
+        return response
 
     app.add_exception_handler(500, server_error)
     app.add_exception_handler(Exception, server_error)

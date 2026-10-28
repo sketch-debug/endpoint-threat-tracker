@@ -15,8 +15,21 @@ Format loosely follows Keep a Changelog; versions are semantic.
 - `SECRET_KEY` from `.env` now signs session cookies (it was ignored).
 - Handler-passed save flashes render again - the Jinja context processor was
   overwriting them with query params on every page.
+- Login no longer blocks the event loop: PBKDF2 (~0.4s) runs in FastAPI's
+  threadpool instead of an `async def`, so `/health` and the dashboard stay
+  responsive during a login attempt.
 - Unauthenticated `/api/*` requests get `401` JSON instead of a `303` to the
   HTML login page.
+- `GET /incidents/{id}/report` for a missing incident returns `404` instead
+  of a 500 (the pre-check called `incidents.get`, which raises LookupError
+  outside the route's try block).
+- Validation errors now display on the page (rendered as a red flash from
+  `base.html`): a bad `scoring.yaml` save, an oversized indicator save and
+  failed user create/password change previously returned a silent 400 -
+  the routes passed an `error` context key that no template rendered.
+- The incident page (200 rows) and generated report (300 rows) now state
+  when the signal list was truncated, instead of silently reading as the
+  complete history.
 
 ### Security
 
@@ -29,6 +42,26 @@ Format loosely follows Keep a Changelog; versions are semantic.
   whenever `server.host` is non-loopback.
 - Dependency pins cleared of known CVEs (fastapi/starlette, requests,
   python-multipart, jinja2, pytest).
+- Security headers now cover every response class: the 401 JSON, the 303
+  login redirect, the favicon 204 and the friendly 500 page all shipped
+  without them (the error handler runs outside the session middleware, and
+  that middleware returned early on the auth branches).
+- The login route no longer echoes unexpected exception text back to an
+  unauthenticated client (a catch-all `except Exception` rendered
+  `str(exc)` - file paths, SQL state - as a 500 page and never logged it).
+  It still renders the rate limiter's 429 on the login page; anything else
+  now becomes the logged, correlation-id 500.
+- Log redaction now catches quoted/JSON keys (`"password": x`,
+  `'password_hash': x`), underscore-prefixed names (`access_token`,
+  `session_secret`), SQL/`Api-Key:` forms and `Authorization: Bearer
+  <token>`; the older `key=value` pattern missed all of them.
+- Login rate limiting now keys on the client IP as well as the username
+  (5 failures / 5 minutes on either dimension blocks): one host spraying
+  many usernames never tripped the per-account counter. Documented in
+  ADMIN_GUIDE.md and the README security notes.
+- CI gates widened: pip-audit now covers requirements-dev.txt (the gate
+  tools themselves were unaudited) and the coverage floor rose from 78%
+  to 79%.
 
 ### Added
 

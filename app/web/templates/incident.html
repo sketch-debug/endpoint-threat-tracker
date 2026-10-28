@@ -133,6 +133,11 @@
         <td><code>{{ s.rule_id }}</code><div class="meta">{{ s.category }} +{{ s.weight }}</div></td>
         <td class="small">{{ summarize(s) }}</td></tr>
       {% endfor %}
+      {% if signals | length > 200 %}
+      <tr><td colspan="5" class="meta small">&hellip; showing first 200 of
+        {{ signals | length }} signals; the rest are stored but not listed
+        here.</td></tr>
+      {% endif %}
     </table>
   </section>
 </div>

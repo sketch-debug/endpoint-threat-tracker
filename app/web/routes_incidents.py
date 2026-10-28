@@ -162,7 +162,7 @@ async def incident_report(request: Request, incident_id: int):
     _require(request, "viewer")
     db = request.app.state.db
     settings = request.app.state.settings
-    if not incidents.get(db, incident_id):
+    if not db.one("SELECT id FROM incidents WHERE id=?", (incident_id,)):
         raise HTTPException(status_code=404, detail="incident not found")
     try:
         incidents.get(db, incident_id)

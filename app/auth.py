@@ -168,11 +168,31 @@ _MAX_ATTEMPTS = 5
 _WINDOW_SECONDS = 300
 
 
-def _too_many_attempts(db: Database, username: str) -> bool:
+def _too_many_attempts(db: Database, username: str, client_ip: str = "") -> bool:
+    """True when either dimension has hit the limit in the window:
+
+    * 5 failures for this username (from any address), or
+    * 5 failures from this client IP (for any username).
+
+    Per-username alone let one host spray many usernames without ever
+    tripping a single account's counter; per-IP alone lets a botnet walk
+    one account. The first to reach the limit blocks. login_failed rows
+    store the IP as detail "ip=<addr>", which both failure branches write;
+    an empty client IP skips the per-IP count so a missing peer address
+    can never lump unrelated failures into one shared bucket.
+    """
     since = time.time() - _WINDOW_SECONDS
+    ts = _epoch_to_iso(since)
     row = db.one(
         "SELECT COUNT(*) AS n FROM audit_log WHERE action='login_failed' "
-        "AND entity=? AND ts >= ?", (username, _epoch_to_iso(since)))
+        "AND entity=? AND ts >= ?", (username, ts))
+    if int(row["n"] if row else 0) >= _MAX_ATTEMPTS:
+        return True
+    if not client_ip:
+        return False
+    row = db.one(
+        "SELECT COUNT(*) AS n FROM audit_log WHERE action='login_failed' "
+        "AND detail=? AND ts >= ?", (f"ip={client_ip}", ts))
     return int(row["n"] if row else 0) >= _MAX_ATTEMPTS
 
 
@@ -182,9 +202,13 @@ def _epoch_to_iso(epoch: float) -> str:
 
 
 def authenticate(db: Database, username: str, password: str, client_ip: str = "") -> dict | None:
-    """Returns the user row on success, None on failure. Rate limited."""
+    """Returns the user row on success, None on failure.
+
+    Rate limited: raises HTTPException(429) when this username OR this
+    client IP has recorded 5 failed attempts in the last 5 minutes.
+    """
     username = (username or "").lower().strip()
-    if _too_many_attempts(db, username):
+    if _too_many_attempts(db, username, client_ip):
         audit(db, "system", "login_blocked", username, f"too many attempts from {client_ip}")
         raise HTTPException(status_code=429, detail="too many login attempts; try later")
     row = db.one("SELECT * FROM users WHERE username=?", (username,))

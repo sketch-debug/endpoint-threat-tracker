@@ -36,6 +36,7 @@
   {% endif %}
   {% if msg %}<div class="flash flash-ok">{{ msg }}</div>{% endif %}
   {% if err %}<div class="flash flash-err">{{ err }}</div>{% endif %}
+  {% if error %}<div class="flash flash-err">{{ error }}</div>{% endif %}
   {% block content %}{% endblock %}
 </main>
 <footer>Endpoint Threat Detection &amp; Incident Tracker &mdash; internal defensive tool.
