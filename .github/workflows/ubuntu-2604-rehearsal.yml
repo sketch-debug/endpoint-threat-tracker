@@ -1,0 +1,35 @@
+name: Ubuntu 26.04 rehearsal
+
+# The ubuntu-latest label finishes moving from 24.04 to 26.04 on Nov 19 2026
+# (actions/runner-images#14748); ci.yml pins ubuntu-24.04 so that swap cannot
+# break the build mid-flight. This workflow is the other half of that: it runs
+# the same three gates on 26.04 so the upgrade is a measured, deliberate step
+# instead of finding out when the pin is finally lifted.
+#
+# Manual only (workflow_dispatch) - it doubles the Linux test time, and there
+# is nothing to re-run on every push while the pin is still 24.04.
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-26.04
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      # Same gate set as ci.yml, so a difference here is the image and not
+      # a difference in what was checked.
+      - name: Install pinned dependencies (runtime + gate tools)
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: python -m ruff check .
+      - name: Audit dependencies (pip-audit, runtime + dev)
+        run: python -m pip_audit -r requirements.txt -r requirements-dev.txt
+      - name: Run test suite with coverage gate
+        run: python -m pytest --cov=app --cov-report=term --cov-fail-under=79
