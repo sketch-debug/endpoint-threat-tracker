@@ -7,7 +7,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: the label is migrating from 24.04 to 26.04
+    # between Oct 19 and Nov 19 2026 (actions/runner-images#14748), and an
+    # image swap would fail this job alone while the Windows jobs stayed
+    # green. Move to ubuntu-26.04 deliberately, in its own commit.
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.13"]
