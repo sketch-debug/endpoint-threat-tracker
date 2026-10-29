@@ -11,7 +11,8 @@ name: Ubuntu 26.04 rehearsal
 # time; read a failure here against the ci.yml run on the same commit - a
 # divergence is the image, not the code. Drop the schedule once ci.yml moves
 # to ubuntu-26.04, at which point the normal CI run covers it. The recorded
-# baseline to compare against lives in RUNNER_IMAGE_MIGRATION.md.
+# baseline lives in RUNNER_IMAGE_MIGRATION.md; report results on issue #8
+# (https://github.com/sketch-debug/endpoint-threat-tracker/issues/8).
 on:
   workflow_dispatch:
   schedule:

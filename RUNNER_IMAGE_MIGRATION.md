@@ -3,6 +3,10 @@
 Reminder, not a runbook: this file exists to be deleted along with the
 `ubuntu-2604-rehearsal` schedule once the pin below moves.
 
+Tracking issue: [#8](https://github.com/sketch-debug/endpoint-threat-tracker/issues/8)
+— record the Monday result there, not here; this file is the measured
+baseline the issue refers back to.
+
 ## State
 
 - `ci.yml` pins `ubuntu-24.04` on the `test` job, so the `ubuntu-latest`
@@ -36,6 +40,8 @@ across commits mixes image drift with code drift and proves nothing.
 Suite time is shared-runner noisy: a few seconds either way is not a signal.
 
 ## Then
+
+Record the outcome on issue #8, then:
 
 - **Matches:** move `ci.yml` to `ubuntu-26.04` in its own commit, then delete
   the rehearsal workflow (its schedule becomes duplicate work).
