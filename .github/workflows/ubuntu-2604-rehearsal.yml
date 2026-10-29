@@ -10,7 +10,8 @@ name: Ubuntu 26.04 rehearsal
 # being rebuilt during the roll-out and a dependency bump can land in it at any
 # time; read a failure here against the ci.yml run on the same commit - a
 # divergence is the image, not the code. Drop the schedule once ci.yml moves
-# to ubuntu-26.04, at which point the normal CI run covers it.
+# to ubuntu-26.04, at which point the normal CI run covers it. The recorded
+# baseline to compare against lives in RUNNER_IMAGE_MIGRATION.md.
 on:
   workflow_dispatch:
   schedule:
