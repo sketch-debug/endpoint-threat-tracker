@@ -30,6 +30,14 @@
     <input type="number" name="recheck_days" value="{{ data.recheck.days if data.recheck else 14 }}" required>
   </label>
 
+  <h3>Login lockout</h3>
+  <label>Failed attempts allowed
+    <input type="number" min="1" name="auth_max_failed_attempts" value="{{ data.auth.max_failed_attempts if data.auth else 5 }}" required>
+  </label>
+  <label>Window in minutes
+    <input type="number" min="1" name="auth_lockout_window_minutes" value="{{ data.auth.lockout_window_minutes if data.auth else 5 }}" required>
+  </label>
+
   <h3>Off-hours</h3>
   <label>Off-hours ranges, comma separated e.g. 22:00-06:00,12:00-13:00
     <input name="off_hours" value="{{ ','.join(data.off_hours) if data.off_hours else '' }}">

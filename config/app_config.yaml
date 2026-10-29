@@ -43,6 +43,9 @@ alerts:
   min_interval_minutes: 0
 recheck:
   days: 14
+auth:
+  max_failed_attempts: 5
+  lockout_window_minutes: 5
 retention:
   enabled: true
   observations_days: 90

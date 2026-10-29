@@ -34,6 +34,54 @@ def _valid_form(settings) -> dict:
     }
 
 
+@pytest.fixture()
+def hermetic_cfg(settings, tmp_path):
+    """Point settings at a throwaway copy of app_config.yaml, so saving the
+    Settings form never rewrites the tracked config/ file."""
+    import shutil
+
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    shutil.copy2(settings.config_dir / "app_config.yaml",
+                 cfg_dir / "app_config.yaml")
+    settings.config_dir = cfg_dir
+    return settings
+
+
+class TestLoginLockoutSettings:
+    """The rate-limit thresholds are config: rendered, saved and validated."""
+
+    def test_form_shows_current_lockout(self, settings, admin_client):
+        resp = admin_client.get("/settings")
+        assert resp.status_code == 200
+        assert 'name="auth_max_failed_attempts"' in resp.text
+        assert 'name="auth_lockout_window_minutes"' in resp.text
+
+    def test_save_persists_lockout(self, hermetic_cfg, admin_client):
+        data = _valid_form(hermetic_cfg)
+        data["auth_max_failed_attempts"] = "3"
+        data["auth_lockout_window_minutes"] = "10"
+        resp = admin_client.post("/settings", data=data)
+        assert resp.status_code == 200, resp.text
+
+        saved = yaml.safe_load(
+            (hermetic_cfg.config_dir / "app_config.yaml").read_text(encoding="utf-8"))
+        assert saved["auth"] == {"max_failed_attempts": 3,
+                                 "lockout_window_minutes": 10}
+
+    def test_zero_is_rejected_not_saved(self, hermetic_cfg, admin_client):
+        cfg = hermetic_cfg.config_dir / "app_config.yaml"
+        before = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+        data = _valid_form(hermetic_cfg)
+        data["auth_max_failed_attempts"] = "0"
+        data["auth_lockout_window_minutes"] = "5"
+        resp = admin_client.post("/settings", data=data)
+        assert resp.status_code == 400
+        assert "at least 1" in resp.text
+        after = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+        assert after["auth"] == before["auth"], "a bad save must not touch config"
+
+
 class TestDeadConfigRemoved:
     def test_settings_page_has_no_require_known_header_checkbox(self, admin_client):
         resp = admin_client.get("/settings")

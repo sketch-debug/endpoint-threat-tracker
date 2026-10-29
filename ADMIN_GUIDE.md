@@ -134,6 +134,20 @@ failed attempts per 5 minutes, counted per username AND per client IP -
 whichever limit is reached first blocks further attempts for that username
 or from that address (one host spraying many usernames trips it too).
 
+Both values are config, not code: `config/app_config.yaml`
+
+```yaml
+auth:
+  max_failed_attempts: 5      # failures allowed before a 429
+  lockout_window_minutes: 5   # rolling window those failures are counted in
+```
+
+Change them and restart, or save the settings page (which preserves the
+block). Whatever the count, the lockout is per username and per client IP
+and clears itself once the window has passed - there is no permanent ban and
+no admin unlock. Zero or negative values are ignored in favour of the
+defaults, so a typo can never switch the lockout off.
+
 LDAP/AD integration is intentionally not bundled (no external deps); the
 user store is a small interface in `app/auth.py` if you need it later.
 

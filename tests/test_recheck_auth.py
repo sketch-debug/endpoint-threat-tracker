@@ -110,6 +110,32 @@ class TestUsers:
             auth.authenticate(db, "carol", "password123")
         assert exc.value.status_code == 429
 
+    def test_rate_limit_thresholds_come_from_settings(self, db: Database,
+                                                      settings: Settings):
+        """The attempt count and window are config, not constants: a stricter
+        max_failed_attempts must take effect for the web login path."""
+        settings.app.setdefault("auth", {})["max_failed_attempts"] = 2
+        assert settings.login_max_attempts == 2
+        settings.app["auth"]["lockout_window_minutes"] = 1
+        assert settings.login_window_seconds == 60
+
+        auth.create_user(db, "erin", "password123", "viewer")
+        assert auth.authenticate(db, "erin", "wrong", settings=settings) is None
+        assert auth.authenticate(db, "erin", "wrong", settings=settings) is None
+        with pytest.raises(HTTPException) as exc:
+            auth.authenticate(db, "erin", "password123", settings=settings)
+        assert exc.value.status_code == 429
+
+    def test_invalid_rate_limit_config_falls_back(self, settings: Settings):
+        """A typo must not disable the lockout (0) or block everyone (-1)."""
+        for bad in ({"max_failed_attempts": "lots",
+                     "lockout_window_minutes": 0},
+                    {"max_failed_attempts": -3,
+                     "lockout_window_minutes": -1}):
+            settings.app["auth"] = dict(bad)
+            assert settings.login_max_attempts == 5
+            assert settings.login_window_seconds == 300
+
     def test_rate_limit_keys_on_client_ip_too(self, db: Database, settings: Settings):
         """One host spraying many usernames must trip the limiter even
         though no single username reaches the per-account limit."""

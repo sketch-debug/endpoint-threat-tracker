@@ -65,6 +65,11 @@ Format loosely follows Keep a Changelog; versions are semantic.
 
 ### Added
 
+- Login rate-limit thresholds are configuration, not constants:
+  `auth.max_failed_attempts` and `auth.lockout_window_minutes` in
+  `config/app_config.yaml` (defaults 5 / 5) now drive both the per-username
+  and per-client-IP lockout. Invalid or non-positive values fall back to the
+  defaults, so a typo can neither disable the lockout nor lock everyone out.
 - File retention: aged files in `inbox/processed`, `inbox/errors` and
   `reports/` are reclaimed daily (`retention.files_days`, default 90;
   in-flight inbox drops are never touched).

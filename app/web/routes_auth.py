@@ -47,7 +47,8 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
     settings = request.app.state.settings
     client_ip = request.client.host if request.client else ""
     try:
-        user = auth.authenticate(db, username, password, client_ip)
+        user = auth.authenticate(db, username, password, client_ip,
+                                 settings=settings)
     except HTTPException as exc:
         # The rate limiter's 429 is the only expected HTTPException; render
         # the login page with its (safe, operator-written) detail. Anything

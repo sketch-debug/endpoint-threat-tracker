@@ -14,7 +14,25 @@ import yaml
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DIR_NAME = "config"
 
+# Documented fallbacks for the login rate limiter; config/app_config.yaml
+# `auth:` overrides them.
+LOGIN_MAX_ATTEMPTS_DEFAULT = 5
+LOGIN_WINDOW_SECONDS_DEFAULT = 300
+
 _env_loaded = False
+
+
+def _positive_int(value, default: int) -> int:
+    """Coerce a config value to a usable limit.
+
+    A zero or negative limit would either disable the lockout or block every
+    login, so bad/absent input falls back to the documented default instead.
+    """
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
 
 
 def load_dotenv(path: Path) -> None:
@@ -135,6 +153,19 @@ class Settings:
     @property
     def recheck_enabled(self) -> bool:
         return bool(self.app.get("recheck", {}).get("enabled", True))
+
+    # ---- login rate limiting (config -> auth.authenticate) ---------------
+    @property
+    def login_max_attempts(self) -> int:
+        """Failed logins allowed per username, and per client IP, in the
+        window before further attempts are refused (auth.max_failed_attempts)."""
+        return _positive_int(self.app.get("auth", {}).get("max_failed_attempts"),
+                             LOGIN_MAX_ATTEMPTS_DEFAULT)
+
+    @property
+    def login_window_seconds(self) -> int:
+        return (_positive_int(self.app.get("auth", {}).get("lockout_window_minutes"),
+                              LOGIN_WINDOW_SECONDS_DEFAULT // 60) * 60)
 
     @property
     def version(self) -> str:

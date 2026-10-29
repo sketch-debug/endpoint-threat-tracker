@@ -18,7 +18,7 @@ from typing import Callable
 from fastapi import HTTPException, Request
 
 from .audit import audit
-from .config import Settings
+from .config import LOGIN_MAX_ATTEMPTS_DEFAULT, LOGIN_WINDOW_SECONDS_DEFAULT, Settings
 from .db import Database
 from .normalize import iso, now_iso, utcnow
 
@@ -164,15 +164,15 @@ def delete_user(db: Database, username: str, actor: str) -> None:
 
 # ------------------------------------------------------- rate limiting ----
 
-_MAX_ATTEMPTS = 5
-_WINDOW_SECONDS = 300
-
-
-def _too_many_attempts(db: Database, username: str, client_ip: str = "") -> bool:
+def _too_many_attempts(db: Database, username: str, client_ip: str = "",
+                       settings: Settings | None = None) -> bool:
     """True when either dimension has hit the limit in the window:
 
-    * 5 failures for this username (from any address), or
-    * 5 failures from this client IP (for any username).
+    * N failures for this username (from any address), or
+    * N failures from this client IP (for any username),
+
+    where N and the window come from config (`auth.max_failed_attempts`,
+    `auth.lockout_window_minutes`, default 5 failures / 5 minutes).
 
     Per-username alone let one host spray many usernames without ever
     tripping a single account's counter; per-IP alone lets a botnet walk
@@ -181,19 +181,20 @@ def _too_many_attempts(db: Database, username: str, client_ip: str = "") -> bool
     an empty client IP skips the per-IP count so a missing peer address
     can never lump unrelated failures into one shared bucket.
     """
-    since = time.time() - _WINDOW_SECONDS
-    ts = _epoch_to_iso(since)
+    max_attempts = settings.login_max_attempts if settings else LOGIN_MAX_ATTEMPTS_DEFAULT
+    window_seconds = settings.login_window_seconds if settings else LOGIN_WINDOW_SECONDS_DEFAULT
+    ts = _epoch_to_iso(time.time() - window_seconds)
     row = db.one(
         "SELECT COUNT(*) AS n FROM audit_log WHERE action='login_failed' "
         "AND entity=? AND ts >= ?", (username, ts))
-    if int(row["n"] if row else 0) >= _MAX_ATTEMPTS:
+    if int(row["n"] if row else 0) >= max_attempts:
         return True
     if not client_ip:
         return False
     row = db.one(
         "SELECT COUNT(*) AS n FROM audit_log WHERE action='login_failed' "
         "AND detail=? AND ts >= ?", (f"ip={client_ip}", ts))
-    return int(row["n"] if row else 0) >= _MAX_ATTEMPTS
+    return int(row["n"] if row else 0) >= max_attempts
 
 
 def _epoch_to_iso(epoch: float) -> str:
@@ -201,15 +202,19 @@ def _epoch_to_iso(epoch: float) -> str:
     return datetime.fromtimestamp(epoch, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def authenticate(db: Database, username: str, password: str, client_ip: str = "") -> dict | None:
+def authenticate(db: Database, username: str, password: str, client_ip: str = "",
+                 *, settings: Settings | None = None) -> dict | None:
     """Returns the user row on success, None on failure.
 
     Rate limited: raises HTTPException(429) when this username OR this
-    client IP has recorded 5 failed attempts in the last 5 minutes.
+    client IP has recorded `auth.max_failed_attempts` failures within
+    `auth.lockout_window_minutes` (defaults: 5 attempts in 5 minutes).
+    Callers that omit `settings` get the documented defaults.
     """
     username = (username or "").lower().strip()
-    if _too_many_attempts(db, username, client_ip):
-        audit(db, "system", "login_blocked", username, f"too many attempts from {client_ip}")
+    if _too_many_attempts(db, username, client_ip, settings):
+        audit(db, "system", "login_blocked", username,
+              f"too many attempts from {client_ip}")
         raise HTTPException(status_code=429, detail="too many login attempts; try later")
     row = db.one("SELECT * FROM users WHERE username=?", (username,))
     if row is None:

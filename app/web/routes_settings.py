@@ -43,7 +43,9 @@ async def save_settings(request: Request,
                         max_file_bytes: int = Form(...),
                         scoring_window_hours: int = Form(...),
                         recheck_days: int = Form(...),
-                        off_hours: str = Form("")):
+                        off_hours: str = Form(""),
+                        auth_max_failed_attempts: int | None = Form(None),
+                        auth_lockout_window_minutes: int | None = Form(None)):
     user = _require_admin(request)
     settings = request.app.state.settings
     cfg_path = settings.config_dir / "app_config.yaml"
@@ -51,6 +53,17 @@ async def save_settings(request: Request,
         data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"cannot read config: {exc}")
+
+    # Login lockout. Optional so older/other forms (and bookmarks) that never
+    # posted these still save; an explicit zero/negative is rejected instead of
+    # silently switching the lockout off.
+    if auth_max_failed_attempts is not None and auth_lockout_window_minutes is not None:
+        if auth_max_failed_attempts < 1 or auth_lockout_window_minutes < 1:
+            return templates.TemplateResponse("settings.html", {
+                "request": request,
+                "data": data,
+                "error": "Login lockout attempts and window must be at least 1.",
+            }, status_code=400)
 
     # server
     data.setdefault("server", {})
@@ -68,6 +81,12 @@ async def save_settings(request: Request,
     # recheck
     data.setdefault("recheck", {})
     data["recheck"]["days"] = int(recheck_days)
+
+    # login lockout
+    if auth_max_failed_attempts is not None and auth_lockout_window_minutes is not None:
+        data.setdefault("auth", {})
+        data["auth"]["max_failed_attempts"] = int(auth_max_failed_attempts)
+        data["auth"]["lockout_window_minutes"] = int(auth_lockout_window_minutes)
 
     # off hours
     if off_hours.strip():
