@@ -6,10 +6,16 @@ name: Ubuntu 26.04 rehearsal
 # the same three gates on 26.04 so the upgrade is a measured, deliberate step
 # instead of finding out when the pin is finally lifted.
 #
-# Manual only (workflow_dispatch) - it doubles the Linux test time, and there
-# is nothing to re-run on every push while the pin is still 24.04.
+# Weekly plus manually dispatchable. Weekly, because the 26.04 image is still
+# being rebuilt during the roll-out and a dependency bump can land in it at any
+# time; read a failure here against the ci.yml run on the same commit - a
+# divergence is the image, not the code. Drop the schedule once ci.yml moves
+# to ubuntu-26.04, at which point the normal CI run covers it.
 on:
   workflow_dispatch:
+  schedule:
+    # Mondays 06:00 UTC.
+    - cron: '0 6 * * 1'
 
 jobs:
   test:
